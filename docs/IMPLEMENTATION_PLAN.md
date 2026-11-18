@@ -750,6 +750,29 @@ Behaviour:
 | 5.3  | `Dashboard` (`features/dashboard/dashboard.ts`) composes both with self-closing tags and reads signals from `ProducerStore` via `inject()`.                                                                                                                                                                                                                                                                                                                                                                                | spec with a stub store (`{provide: ProducerStore, useValue: stub}`): renders N rows for N instruments                                                                                                               |
 | 5.4  | Accessibility: `<table>` with `<caption>`, `scope="col"`; status in `role="status" aria-live="polite"` (only status text, **not** the live table, to avoid screen-reader flooding).                                                                                                                                                                                                                                                                                                                                        | spec asserts `caption` exists and `role="status"` present                                                                                                                                                           |
 
+> **5.1–5.4 status (2026-11-18): done (one commit: the components count as unused code under knip until `Dashboard` uses them).**
+>
+> - **`MetricsTable`:**
+>   - `rows = input.required()`; cells use only the `cents`/`volume`/`imbalance` pure pipes.
+>   - Numbers are right-aligned with `tabular-nums`; a horizontal-scroll wrapper is pulled forward from 7.3.
+>   - The imbalance cell gets a `bid-heavy`/`ask-heavy` class, and the sign stays in the text.
+>   - Accessibility: `<caption>`, `scope="col"`, `scope="row"` on symbols, and no aria-live region.
+> - **`ProducerStatus`:**
+>   - Injects `ProducerStore` (it will also appear in the shell in 7.1).
+>   - `@let status` plus `@switch … @default never;`. The exhaustive check needs `@let`, because a call expression doesn't narrow.
+>   - Shows the run number, settings, nominal vs measured updates/s, and batches.
+>   - Pause/Resume is disabled while initializing or in error; its label and `aria-pressed` follow the status.
+>   - An error shows a `role="alert"` region with Retry. Only the status pill is `role="status" aria-live="polite"`.
+> - **`Dashboard`:** composes both and reads `store.rows`.
+> - **Test helper:** `core/producer/testing/store-stub.ts` (`ProducerStoreStub`, typed as `Pick<ProducerStore, …>`).
+> - **Specs:** 5 table, 8 status and 5 dashboard tests, including the worked example `$102.00 $0.04 40 $101.50 +0.20` and the empty row `— — 0 — —`.
+> - **Browser check (production build, Chrome DevTools MCP):**
+>   - Rows update every batch; measured 200/s matches the nominal rate. Pause flips to Paused/Resume (`aria-pressed=true`), the rows freeze, and the rate drops to 0/s.
+>   - The accessibility tree shows a single polite status region. The console is empty.
+>   - A 4 s trace while streaming shows CLS 0.00 and no long-task insight.
+>
+> **Phase 5 gate (2026-11-18): passed.** 190 unit tests. Initial bundle 217.9 kB raw / 59.5 kB transferred (budget 500 kB). Full `npm run verify` exit 0.
+
 **Phase 5 gate:** tests pass; `npx ng build` within budgets (initial < 500 kB warning budget).
 
 ---
