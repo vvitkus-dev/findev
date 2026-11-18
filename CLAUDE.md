@@ -32,9 +32,13 @@ npm run static               # format:check, lint, lint:types, dup (jscpd), dead
 npm run lint                 # ng lint --max-warnings 0 (TS + templates)
 npm run format               # prettier --write .
 npm run quality:self-test    # proves the gates still fire: lint/quality/hook probes + AAA RuleTester
+npm run test:rust            # rustfmt --check + clippy (native & wasm32, -D warnings, pedantic) + cargo test
+npm run rust:fmt             # cargo fmt on wasm/producer
+npm run wasm:compile         # cargo build --release --target wasm32-unknown-unknown
+node scripts/cargo.mjs test rng::   # any cargo subcommand on the producer crate (single Rust test module)
 ```
 
-_(planned)_ These scripts join `verify` as the phases land: `wasm:build` and `wasm:verify` (step 1.6); `test:rust` (cargo test + clippy + fmt) and `cov:rust` (step 1.1 / Q2.3); `test:wasm` (Node Vitest on the compiled `.wasm`, step 2.5); `test:ci` (coverage thresholds, Q2.1); `e2e` (Playwright, Q3).
+_(planned)_ These scripts join `verify` as the phases land: `wasm:build` (copies the module into `public/wasm/`) and `wasm:verify` (step 1.6); `cov:rust` (Q2.3); `test:wasm` (Node Vitest on the compiled `.wasm`, step 2.5); `test:ci` (coverage thresholds, Q2.1); `e2e` (Playwright, Q3).
 
 ## Architecture (target, see plan §1–§3)
 
@@ -79,7 +83,8 @@ All thresholds are hard failures, and deploy is blocked unless every gate is gre
 
 - **On every edit I make:** a Claude Code `PostToolUse` hook (`.claude/settings.json` → `scripts/agent-lint-file.mjs`) formats and lints the file. When it reports ESLint errors, fix them before doing anything else.
 - **On commit:** lint-staged (Prettier + ESLint on staged files) and commitlint. Messages must be conventional commits, and they **must not mention Claude/Anthropic** or carry AI attribution lines.
-- **On push:** `npm run verify:fast`.
+- **On push:** `npm run verify:fast` (static + Rust + unit tests).
+- **Rust (`wasm/producer`):** clippy `all` + `pedantic` are denied, with no `unwrap`/`expect`/`panic` outside tests. Cognitive complexity ≤ 7 and nesting ≤ 4 (calibrated for clippy's scoring); ≤ 60 lines and ≤ 4 arguments per function. Thresholds live in `wasm/producer/clippy.toml`.
 - **In CI:** everything above plus coverage, E2E and the pyramid check. _(planned, Q4)_
 
 Never bypass these with `--no-verify`.

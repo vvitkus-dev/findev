@@ -185,6 +185,14 @@ Each step lists **work** and a **deterministic control check** (command → exac
 | Q2.3 | **Rust coverage**: `rust-toolchain.toml` `components = ["llvm-tools-preview","clippy","rustfmt"]`; `cargo install cargo-llvm-cov` (CI: `taiki-e/install-action`); script `cov:rust` = `cargo llvm-cov --manifest-path wasm/producer/Cargo.toml --fail-under-lines 85 --fail-under-functions 85 --lcov --output-path reports/rust.lcov`.              | `npm run cov:rust` exit 0                                                                                                   |
 | Q2.4 | Integration tests I1–I3 (§3.1) written with the implementation phases 3–6; Node-environment integration (I1) runs in `wasm-tests/vitest.config.ts` project.                                                                                                                                                                                          | Named tests present: `npx ng test --watch=false --list-tests \| grep -c integration` ≥ 2; `npm run test:wasm` lists I1 + I4 |
 
+> **Q0.9 status (2026-11-18, delivered with Implementation step 1.1):**
+>
+> - **Lint policy:** the Cargo `[lints]` table denies `clippy::all` and `clippy::pedantic`, plus `unwrap_used`/`expect_used`/`panic`/`todo` outside tests (Wasm uses `panic = "abort"`, so a panic would trap the worker).
+> - **Thresholds** are in `clippy.toml`: cognitive complexity **7**, nesting **4**, at most 60 lines and 4 arguments per function.
+> - **Recalibration:** the cognitive limit was lowered from the planned 10 to 7. A probe showed clippy's score has no nesting weight; a function 3 loops deep with compound conditions scored only 9, so `excessive_nesting` was added as well.
+> - **Probes:** 7 Rust probes in `quality-probes.mjs` run on a temporary copy of the crate and read the exact lint codes from cargo's JSON output.
+> - **Hooks:** Rust runs in lint-staged and in `verify:fast`/`verify`.
+
 **Q2 gate:** `npm run test:ci && npm run cov:rust && npm run test:wasm` exit 0.
 
 ### Phase Q3 — E2E, accessibility, visual (attach after Implementation Phase 7)

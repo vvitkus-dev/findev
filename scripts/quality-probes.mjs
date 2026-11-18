@@ -2,8 +2,17 @@
 // Proves non-ESLint quality tools actually fail on bad input (docs/QUALITY_GATES_PLAN.md).
 // Each probe: create throwaway files → run the tool → assert exit code (and output) → clean up.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { delimiter, dirname, join } from 'node:path';
 
 /** Run a command; returns { code, out }. */
 function run(cmd, args, input) {
@@ -27,6 +36,59 @@ function withFiles(files, check) {
     rmSync('src/app/__quality_probes__', { recursive: true, force: true });
   }
 }
+
+/**
+ * Copy the Rust crate (without target/) + toolchain file into a temp dir, append `code` to
+ * lib.rs, run `cargo <args>` there, delete the copy. The real crate is never modified.
+ */
+function withRustCrate(code, args) {
+  const dir = mkdtempSync(join(tmpdir(), 'rust-probe-'));
+  try {
+    cpSync('wasm/producer', dir, { recursive: true, filter: (src) => !src.includes('/target') });
+    cpSync('rust-toolchain.toml', join(dir, 'rust-toolchain.toml'));
+    // Insert before the test module so only the intended lint can fire (no items_after_test_module).
+    const lib = join(dir, 'src/lib.rs');
+    const src = readFileSync(lib, 'utf8');
+    const at = src.indexOf('#[cfg(test)]');
+    writeFileSync(
+      lib,
+      at === -1 ? `${src}\n${code}\n` : `${src.slice(0, at)}${code}\n\n${src.slice(at)}`,
+    );
+    const r = spawnSync('cargo', args, {
+      cwd: dir,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: [process.env.PATH, join(homedir(), '.cargo', 'bin')].join(delimiter),
+      },
+    });
+    return { code: r.status ?? -1, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+const CLIPPY = ['clippy', '--all-targets', '--message-format', 'json', '--', '-D', 'warnings'];
+/** Lint codes (e.g. `clippy::unwrap_used`) reported in cargo's JSON message stream. */
+const lintCodes = (out) =>
+  new Set(
+    out
+      .split('\n')
+      .filter((l) => l.startsWith('{'))
+      .map((l) => JSON.parse(l).message?.code?.code)
+      .filter(Boolean),
+  );
+/** Probe: appending `code` must make clippy fail with lint `lint`. */
+const clippyProbe = (name, lint, code) => ({
+  name,
+  run: () => {
+    const r = withRustCrate(code, CLIPPY);
+    const codes = lintCodes(r.out);
+    return {
+      ok: r.code !== 0 && codes.has(`clippy::${lint}`),
+      detail: `exit=${r.code} lints=[${[...codes].join(', ')}]`,
+    };
+  },
+});
 
 const duplicatedFn = (
   name,
@@ -108,6 +170,74 @@ const PROBES = [
     run: () => {
       const r = run('npx', ['knip', '--no-progress']);
       return { ok: r.code === 0, detail: `exit=${r.code}` };
+    },
+  },
+  // Q0.9 — Rust static analysis (each runs on a throwaway copy of the crate)
+  clippyProbe(
+    'clippy pedantic: lossy cast',
+    'cast_possible_truncation',
+    '/// Probe.\n#[must_use]\npub fn narrow(x: u64) -> u32 { x as u32 }',
+  ),
+  clippyProbe(
+    'clippy: unwrap banned outside tests',
+    'unwrap_used',
+    '/// Probe.\n#[must_use]\npub fn first(v: &[u32]) -> u32 { *v.first().unwrap() }',
+  ),
+  clippyProbe(
+    'clippy: more than 4 arguments',
+    'too_many_arguments',
+    '/// Probe.\n#[must_use]\npub fn five(a: u32, b: u32, c: u32, d: u32, e: u32) -> u32 { a ^ b ^ c ^ d ^ e }',
+  ),
+  clippyProbe(
+    'clippy: cognitive complexity > 7',
+    'cognitive_complexity',
+    `/// Probe.
+#[must_use]
+pub fn tangled(v: &[u32], a: bool, b: bool) -> u32 {
+    let mut s = 0;
+    for x in v {
+        if a {
+            for y in v {
+                if b && x > y { s += 1; } else if x < y || a { s += 2; } else { s += 3; }
+            }
+        } else if b {
+            while s < *x { if a || b { s += 1; } else { s += 2; } }
+        }
+    }
+    s
+}`,
+  ),
+  clippyProbe(
+    'clippy: nesting deeper than 4 blocks',
+    'excessive_nesting',
+    `/// Probe.
+#[must_use]
+pub fn deep(v: &[u32]) -> u32 {
+    let mut s = 0;
+    for x in v {
+        for y in v {
+            for z in v {
+                if x + y > *z {
+                    s += 1;
+                }
+            }
+        }
+    }
+    s
+}`,
+  ),
+  {
+    name: 'rustfmt --check fails on unformatted code',
+    run: () => {
+      const r = withRustCrate('/// Probe.\npub   fn   ugly( )->u32{1}', ['fmt', '--check']);
+      return { ok: r.code !== 0, detail: `exit=${r.code}` };
+    },
+  },
+  {
+    name: 'ALLOWED: unchanged crate passes clippy -D warnings',
+    run: () => {
+      const r = withRustCrate('', CLIPPY);
+      return { ok: r.code === 0, detail: `exit=${r.code}${r.code === 0 ? '' : `\n${r.out}`}` };
     },
   },
 ];

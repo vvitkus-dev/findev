@@ -432,6 +432,13 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 | 1.6  | `scripts/build-wasm.mjs`: runs cargo, copies to `public/wasm/producer.wasm`. `scripts/verify-wasm.mjs`: `WebAssembly.Module.exports` equals exactly `{memory, abi_version, record_words, producer_create, producer_generate, producer_destroy}`; `abi_version()==1`; size ≤ 64 KB. | `npm run wasm:build && npm run wasm:verify` exit 0, prints `OK exports=6 size=<N>B`                                                                                                                                                                                                                                                                          |
 | 1.7  | `cargo clippy -- -D warnings`, `cargo fmt --check` in `test:rust`.                                                                                                                                                                                                                 | `npm run test:rust` exit 0                                                                                                                                                                                                                                                                                                                                   |
 
+> **1.1 status (2026-11-18): done.**
+>
+> - **Crate:** `wasm/producer` (`market-producer`, edition 2024, `cdylib` + `rlib`, release profile as specified, no dependencies).
+> - **Starting point:** `lib.rs` holds only `ABI_VERSION`, the `abi_version()` export and its test.
+> - **Control check:** `npm run wasm:compile` exits 0 and produces a 65-byte module whose exports are `memory` and `abi_version`, with `abi_version()` returning 1.
+> - **Scripts:** `npm run test:rust` runs fmt-check, clippy on native and `wasm32`, and `cargo test`. `scripts/cargo.mjs` adds the manifest path and `~/.cargo/bin`, so the scripts also work from git hooks.
+
 **Phase 1 gate:** `npm run test:rust && npm run wasm:build && npm run wasm:verify` exit 0.
 
 ---

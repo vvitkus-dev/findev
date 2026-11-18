@@ -1,0 +1,12 @@
+# Thresholds for the lints enabled in Cargo.toml [lints.clippy] (Q0.9).
+# Calibrated 2026-11-18: clippy's score has no nesting weight (a 3-loop-deep function scored 9),
+# so 7 here ≈ the TS sonarjs limit of 15; nesting is capped separately below.
+cognitive-complexity-threshold = 7
+# Mirrors TS `max-depth: 3` (clippy counts the function body block as a level).
+excessive-nesting-threshold = 4
+too-many-lines-threshold = 60
+too-many-arguments-threshold = 4
+# Tests may unwrap/expect/panic: a failing assertion is the point of a test.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

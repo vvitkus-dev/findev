@@ -1,0 +1,43 @@
+[package]
+name = "market-producer"
+version = "0.1.0"
+edition = "2024"
+description = "Simulated market-update generator compiled to WebAssembly (raw C ABI, no wasm-bindgen)."
+publish = false
+
+[lib]
+# cdylib → the .wasm module; rlib → lets `cargo test` run the same code natively.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Intentionally none: RNG and model are hand-written (no getrandom/wasm-bindgen glue).
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# ---- Static analysis policy (docs/QUALITY_GATES_PLAN.md Q0.9) ------------------
+# CI and hooks run clippy with `-D warnings`, so every `warn` below is a hard failure.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+unused_must_use = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+# Complexity / size limits mirror the TypeScript ones (thresholds in clippy.toml).
+cognitive_complexity = "deny"
+excessive_nesting = "deny"
+too_many_lines = "deny"
+too_many_arguments = "deny"
+# The Wasm build uses panic = "abort": a panic is a trap in the worker, so no hidden panics.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+dbg_macro = "deny"
+undocumented_unsafe_blocks = "deny"
