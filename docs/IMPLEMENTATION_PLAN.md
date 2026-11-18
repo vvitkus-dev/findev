@@ -710,6 +710,33 @@ Behaviour:
 | 4.7  | Errors & cleanup: `worker.onerror`, `onmessageerror`, `error` messages ⇒ `status='error'`, `error()` message. `retry()` terminates old worker, creates new one, re-sends init+start with **new** runId. `DestroyRef.onDestroy` ⇒ send `dispose` + `terminate()`.                                                                                              | spec: init error sets human-readable message; `retry` ⇒ factory call count 2, old `terminate` called once; `TestBed.resetTestingModule()` (destroys root injector) ⇒ `terminate` called                                                               |
 | 4.8  | Navigation invariant.                                                                                                                                                                                                                                                                                                                                         | spec using `RouterTestingHarness` with the real `routes` (no Router mocks, per skill `router-testing.md`): navigate dashboard→settings→dashboard ×5 ⇒ factory call count still 1; status preserved (pause, navigate, still paused)                    |
 
+> **4.1–4.7 status (2026-11-18): done (one commit; the tokens and `FakeWorker` are unused until the store exists, and knip rejects unused code).**
+>
+> - **`producer-tokens.ts`:** `WORKER_FACTORY` (the only `new Worker`, enforced by the new lint ban `BAN_NEW_WORKER` with 2 probes), `SEED_SOURCE` (`crypto.getRandomValues`), `WASM_URL` (resolved against `document.baseURI`) and `PRODUCER_CLOCK`. `WorkerPort` in `producer-tokens.model.ts` is the protocol-typed subset of `Worker`; a real `Worker` satisfies it.
+> - **`ProducerStore`:**
+>   - `@Service()` with private signals exposed through `.asReadonly()`; `rows` is `computed(deriveMetrics)`.
+>   - `boot()` is idempotent; every run starts from fresh rows.
+>   - `runId` and `seq` gates; status updates and errors from other runs are ignored, and a late status message can't hide an error.
+>   - Pause/resume update the status immediately.
+>   - `apply` validates the settings or throws; from `error` it recreates the worker.
+>   - `retry` only works from `error`.
+>   - When the root injector is destroyed, the store sends `dispose` and calls `terminate`.
+> - **`ThroughputMeter` (4.6):** a 1 s sliding window over the cumulative `stats.updates`.
+>   - **Bug found by mutation testing:** pause must only clear the window. Resetting the running total counted the whole run again after resume.
+> - **Specs:**
+>   - 26 store tests (run/control and lifecycle) and 6 meter tests.
+>   - 20 injected store bugs were all caught. Two were missed at first and needed new tests: `lastSeq` not reset for a new run, and run 1 throughput leaking into run 2.
+>
+> **4.8 status (2026-11-18): done.**
+>
+> - The route table from 7.1 was pulled forward: `''`→`dashboard`, lazy `dashboard`/`settings`, `**`→`dashboard`, plus page titles. `Dashboard` and `Settings` are CLI-generated placeholders until Phases 5–6.
+> - `appConfig` boots the store with `provideAppInitializer`.
+> - `producer-store.integration.spec.ts` uses the real `appConfig` and `RouterTestingHarness`: one worker from the initializer, dashboard⇄settings ×5 still gives 1 worker, and pause survives navigation. A page that calls `boot()` with a non-idempotent `boot` fails all 3 tests.
+> - `app.routes.spec.ts` covers the 7.1 route checks.
+> - **Browser check (production build, Chrome DevTools MCP):** `/` → `/dashboard`; `worker-*.js` and `wasm/producer.wasm` both return 200, and the console is empty.
+>
+> **Phase 4 gate (2026-11-18): passed.** 172 unit tests; `grep -rn "new Worker" src/app | grep -v spec` gives exactly 1 hit, in `producer-tokens.ts` (the plan's `worker-factory.ts` name was superseded by §3/CLAUDE.md). Full `npm run verify` exit 0.
+
 **Phase 4 gate:** `npx ng test --watch=false` exit 0; `grep -rn "new Worker" src/app | grep -v spec` → exactly 1 hit (`worker-factory.ts`).
 
 ---
