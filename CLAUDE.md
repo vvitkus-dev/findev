@@ -106,6 +106,15 @@ The architecture rules are lint rules, so `eslint-disable` can't switch them off
 - **Tests use AAA:** `// Arrange`, `// Act` (exactly once), `// Assert` comments, enforced by the `local/aaa-sections` lint rule. Angular's `await fixture.whenStable()` belongs to the Act section.
 - **Never weaken a gate to make code pass.** Don't lower thresholds, and every `eslint-disable` needs a `-- reason`. Fix the code or split it.
 
+## Browser checks (Chrome DevTools MCP)
+
+`.mcp.json` registers `chrome-devtools-mcp@1.12.0`, pinned to a release at least 14 days old. It runs with `--isolated` (a throwaway profile), `--headless`, and with usage statistics, CrUX lookups and update checks turned off. Claude Code asks you to approve it once.
+
+- **Uses:** checking the running app (console, network, accessibility snapshot, screenshots), `performance_start_trace` with `performance_analyze_insight`, `emulate` (CPU and network throttling) and `lighthouse_audit`.
+- **Every page tool needs `pageId`** (call `list_pages` first).
+- **File output** (screenshots, traces) is restricted to the OS temp directory.
+- **Trace the production build** (`npm run build`, then serve `dist/findev/browser`), not `ng serve`. The first trace in a fresh profile includes cold-start cost, so compare warm runs.
+
 ## Conventions
 
 - **Dependencies:** every direct dependency is pinned to an exact version published **at least 14 days ago** (`.npmrc` sets `save-exact`). `npm run deps:age` fails otherwise and suggests the version to use. To add a package: `npm install <pkg>@<version> --before=<date 14 days ago>`. This keeps its transitive dependencies old enough too.
