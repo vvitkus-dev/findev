@@ -8,7 +8,16 @@ import type { ProducerStats, ProducerStatus } from '../producer-store.model';
 
 type StoreSurface = Pick<
   ProducerStore,
-  'status' | 'settings' | 'runId' | 'stats' | 'error' | 'rows' | 'pause' | 'resume' | 'retry'
+  | 'status'
+  | 'settings'
+  | 'runId'
+  | 'stats'
+  | 'error'
+  | 'rows'
+  | 'apply'
+  | 'pause'
+  | 'resume'
+  | 'retry'
 >;
 
 /**
@@ -25,6 +34,16 @@ export class ProducerStoreStub implements StoreSurface {
   readonly rows = computed(() => createAccumulators(this.instrumentCount()).map(deriveMetrics));
   /** Command names in call order, e.g. `['pause', 'resume']`. */
   readonly calls: string[] = [];
+  /** Arguments of every `apply()` call. */
+  readonly applied: ProducerSettings[] = [];
+
+  /** Records the call and behaves like the real store: new run with these settings. */
+  apply(settings: ProducerSettings): void {
+    this.calls.push('apply');
+    this.applied.push(settings);
+    this.settings.set(settings);
+    this.runId.update((id) => id + 1);
+  }
 
   pause(): void {
     this.calls.push('pause');

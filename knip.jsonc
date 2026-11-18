@@ -9,13 +9,10 @@
     "scripts/**/*.mjs",
     "eslint-rules/**/*.{js,mjs}",
   ],
-  // TEMPORARY: @angular/forms is consumed by the Signal Forms settings page (Implementation Phase 6).
-  // Remove this ignore in step 6.2 — the gate must then pass without it.
   // Two Vitest setups: Angular unit tests (`ng test`, no config file) and the Node Wasm suite.
   // Declared explicitly: once wasm-tests/vitest.config.ts exists, knip would otherwise only see its tests.
   "vitest": {
     "config": ["wasm-tests/vitest.config.ts"],
     "entry": ["src/**/*.spec.ts", "wasm-tests/**/*.test.ts"],
   },
-  "ignoreDependencies": ["@angular/forms"],
 }

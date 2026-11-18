@@ -788,6 +788,26 @@ Behaviour:
 | 6.4  | Apply → `submit(settingsForm, async () => store.apply(draft()))` (the callback must be `async`), then `settingsForm().reset()`, confirmation "Run #N started with …". "Reset to defaults" fills form only.                                                                                                                                                                                                                                                                                                                                                                                                                           | spec: Apply with valid values ⇒ `apply` called once with integers `{10,200,250}`; reset-to-defaults (`draft.set({...DEFAULT_SETTINGS})`) ⇒ form values default, `apply` not called; submitting an invalid form ⇒ `apply` not called and all fields touched |
 | 6.5  | Integration (real `ProducerStore` + `FakeWorker`): apply ⇒ dashboard rows cleared and stale snapshot rejected.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | spec: emit snapshot run1 with volume 40 ⇒ apply ⇒ rows volume 0 ⇒ emit another run1 snapshot ⇒ still 0 ⇒ emit run2 snapshot ⇒ updated                                                                                                                      |
 
+> **6.1–6.5 status (2026-11-18): done (one commit: the schema counts as unused under knip until `Settings` uses it).**
+>
+> - **`settings-schema.ts`:** `schema<ProducerSettings>()` applies `required`, `min`/`max` (limits from `SETTINGS_LIMITS`, message "Must be between X and Y") and a `validate` that returns `{kind:'integer'}` for non-integers and `NaN`. 8 pure tests, including every boundary ±1.
+> - **`Settings` page:**
+>   - The draft is `linkedSignal(() => ({...store.settings()}))`, and `form(draft, settingsSchema)` builds the form.
+>   - Number inputs have labels and hints; errors show once a field is touched or edited, with `aria-invalid` and `aria-describedby` pointing to the hint and error.
+>   - A live nominal rate shows "—" while the form is invalid.
+>   - Apply runs `submit()`, then `store.apply`, `reset()` and a "Run #N started with …" message in a `role="status"`. "Reset to defaults" only fills the form.
+> - **`[formField]` attributes:** `[formField]` itself puts the schema's `min`/`max` on the native input. The test asserts they equal `SETTINGS_LIMITS`, which proves they come from the schema and not from template attributes.
+> - **New lint gate:** min/max/value/disabled/readonly on a `[formField]` element is now an ESLint error in templates, including inline ones. A static `value` on a radio or checkbox stays allowed. 4 probes.
+> - **6.2b:** knip's `@angular/forms` ignore is removed, and `deadcode` passes.
+> - **6.5:** `app.integration.spec.ts` drives the real router, store and pages with a fake worker. Run-1 rows clear on Apply; a late run-1 snapshot is rejected; run 2 is accepted; still 1 worker.
+> - **Mutation check:** 6 injected Settings bugs, all caught (old settings applied, draft not linked, no submit guard, `submit()` bypassed, nominal rate shown while invalid, reset that applies).
+> - **Stress test (production build, Chrome DevTools MCP, real UI):**
+>   - Apply 50/1000/50 (20,000 updates/s), then navigate in-app to the dashboard: 50 rows, **0 long tasks, 60 fps**, worst frame 17 ms, heap flat at 3.4 MB. The same with 4× CPU slowdown.
+>   - Pause reaches the screen in 17 ms (one frame), and the rows freeze.
+>   - Measured throughput is 18,000–19,000/s against 20,000 nominal. The reschedule delay subtracts only the batch time, so the timer's own late firing (about 2–5 ms per tick) slows the cadence. That follows the plan's `max(0, interval − elapsed)` rule; it is a possible drift-correction follow-up, not a bug.
+>
+> **Phase 6 gate (2026-11-18): passed.** 210 unit tests; full `npm run verify` exit 0. Initial bundle 235.4 kB (64 kB transferred); Settings is a lazy 64.8 kB chunk.
+
 **Phase 6 gate:** `npx ng test --watch=false` exit 0.
 
 ---
