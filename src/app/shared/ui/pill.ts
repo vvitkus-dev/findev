@@ -9,6 +9,10 @@ import type { PillTone } from './pill.model';
   styles: `
     :host {
       display: inline-block;
+      /* One line tall even while empty: the label is a binding, filled in only by the first
+         update pass, and a frame painted before it must not show a collapsed pill. */
+      min-height: 1lh;
+      vertical-align: middle;
       padding: 0.125rem 0.625rem;
       border-radius: 999px;
       font-weight: 600;
