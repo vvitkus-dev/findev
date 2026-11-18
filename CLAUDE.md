@@ -16,6 +16,7 @@ The repo is currently at **Phase 0**: a fresh Angular 22 scaffold. Paths and scr
 - TypeScript 6.0. Vitest 5 runs through `@angular/build:unit-test` with jsdom (no Karma, no `vitest.config` for app tests).
 - Node 24 (`.nvmrc`), npm 11.
 - Rust **1.99.0**, pinned by `rust-toolchain.toml` (2024 edition, target `wasm32-unknown-unknown`, with clippy, rustfmt and llvm-tools), installed through rustup. If `cargo` isn't on `PATH` in a non-login shell, run `. "$HOME/.cargo/env"` first.
+- One-time Rust tool for `cov:rust`: `cargo +1.99.0 install cargo-llvm-cov --version 0.9.1 --locked` (pinned, ≥ 14 days old; the `+1.99.0` is needed because rustup has no global default here).
 
 ## Commands
 
@@ -40,9 +41,10 @@ npm run wasm:verify          # ABI check on the built module: exact exports, no 
 npm run test:wasm            # Node Vitest suite on the real public/wasm/producer.wasm via wasm-generator.ts (run wasm:build first)
 node scripts/cargo.mjs test rng::   # any cargo subcommand on the producer crate (single Rust test module)
 npm run test:rust:mutants    # mutation check: each injected Rust bug must make a test fail (add mutants with new code)
+npm run cov:rust             # Rust coverage gate (≥ 85 % lines + functions) → reports/rust.lcov; needs cargo-llvm-cov (below)
 ```
 
-_(planned)_ These scripts join `verify` as the phases land: `cov:rust` (Q2.3); `e2e` (Playwright, Q3).
+_(planned)_ These scripts join `verify` as the phases land: `e2e` (Playwright, Q3).
 
 ## Architecture (target, see plan §1–§3)
 

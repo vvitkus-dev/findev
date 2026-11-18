@@ -166,6 +166,19 @@ const coverageProbe = (name, file, statements, expect, forbid) => ({
   },
 });
 
+/** The gate's own flags, read from package.json so the probe always tests the real thresholds. */
+const covRustArgs = () => {
+  const script = JSON.parse(readFileSync('package.json', 'utf8')).scripts['cov:rust'];
+  const gate = script.split('&&')[0].trim().split(/\s+/);
+  return gate.slice(gate.indexOf('llvm-cov'));
+};
+/** 20 public functions no test calls: functions coverage drops well below 85 %. */
+const uncoveredRust = Array.from(
+  { length: 20 },
+  (_, i) =>
+    `/// Probe.\n#[must_use]\npub fn uncovered_${i}(x: u32) -> u32 {\n    x.wrapping_add(${i})\n}\n`,
+).join('\n');
+
 const CLIPPY = ['clippy', '--all-targets', '--message-format', 'json', '--', '-D', 'warnings'];
 /** Lint codes (e.g. `clippy::unwrap_used`) reported in cargo's JSON message stream. */
 const lintCodes = (out) =>
@@ -379,6 +392,26 @@ pub fn deep(v: &[u32]) -> u32 {
     { vitest: '5.1.0' },
     '2026-11-17T00:00:00Z',
   ]),
+  {
+    name: 'cov:rust fails when Rust functions go untested',
+    run: () => {
+      // A threshold miss prints the summary table and exits 1 (a compile error would exit 101).
+      const r = withRustCrate(uncoveredRust, covRustArgs());
+      const total = r.out.split('\n').find((l) => l.startsWith('TOTAL')) ?? '';
+      const pcts = total.match(/\d+\.\d+%/g) ?? [];
+      return {
+        ok: r.code === 1 && total !== '',
+        detail: `exit=${r.code} regions/functions/lines = ${pcts.join(' / ') || '(no summary)'}`,
+      };
+    },
+  },
+  {
+    name: 'ALLOWED: cov:rust passes on the unchanged crate',
+    run: () => {
+      const r = withRustCrate('', covRustArgs());
+      return { ok: r.code === 0, detail: `exit=${r.code}` };
+    },
+  },
   // Coverage gates (Q2.1 global 65 %, Q2.2 critical paths 85 %). Untested files must count.
   // Sized so exactly ONE floor breaks. Today core/producer has ~83 covered lines and the app ~107:
   // +30 uncovered core lines → core ≈ 72 % (< 85), global ≈ 76 % (> 65). The second probe adds

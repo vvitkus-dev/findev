@@ -219,6 +219,19 @@ Each step lists **work** and a **deterministic control check** (command → exac
 > - **Probe deviation:** the plan suggested skipping `metrics.spec.ts`. I add a file instead, so no real file is touched.
 > - **Wiring:** `verify:fast` (pre-push) and `verify` now run `test:ci` in place of `test:unit`.
 
+> **Q2.3 status (2026-11-18): done.**
+>
+> - **Tool:** `cargo-llvm-cov` **0.9.1**, 72 days old, installed with `cargo +1.99.0 install … --locked`. rustup has no global default here; only `rust-toolchain.toml` selects one, so the toolchain is named explicitly rather than changing the machine-wide default.
+> - **`npm run cov:rust`:** a `--summary-only` gate with `--fail-under-lines 85 --fail-under-functions 85`, then `llvm-cov report --lcov` → `reports/rust.lcov` for CI (Q4).
+> - **Results today:** 99.83 % lines, 100 % functions, 99.69 % regions.
+> - **Caveat:** tests are inline `#[cfg(test)]` modules, which llvm-cov counts, so the numbers run slightly high. The mutation check (`test:rust:mutants`) is the stronger signal for Rust test quality.
+> - **Probes:**
+>   - 20 untested public functions give functions 82.76 % → exit 1.
+>   - The unchanged crate → exit 0.
+>   - The probes read the thresholds **from the `cov:rust` script itself**, so lowering them in `package.json` also changes what is probed.
+>   - llvm-cov prints no message on a miss; the probe requires exit 1 plus a printed `TOTAL` row, which tells it apart from a compile error (exit 101).
+> - **Wiring:** runs in `verify`, not in `verify:fast`, because the instrumented rebuild is slower.
+
 **Q2 gate:** `npm run test:ci && npm run cov:rust && npm run test:wasm` exit 0.
 
 ### Phase Q3 — E2E, accessibility, visual (attach after Implementation Phase 7)
