@@ -115,6 +115,14 @@ The architecture rules are lint rules, so `eslint-disable` can't switch them off
 - **File output** (screenshots, traces) is restricted to the OS temp directory.
 - **Trace the production build** (`npm run build`, then serve `dist/findev/browser`), not `ng serve`. The first trace in a fresh profile includes cold-start cost, so compare warm runs.
 
+## Diagrams (draw.io MCP)
+
+`.mcp.json` also registers the official draw.io MCP server, `@drawio/mcp@1.10.1` (pinned, ≥ 14 days old). Claude Code asks you to approve it once.
+
+- **Tools:** `open_drawio_mermaid`, `open_drawio_xml` and `open_drawio_csv` open a diagram in the draw.io editor in your browser. `list_pages`, `get_page` and `set_page` read and write `.drawio` files, so diagrams can be committed (e.g. `docs/diagrams/*.drawio`). `search_shapes` finds icons, and `get_drawio_reference` returns the XML/Mermaid syntax reference.
+- **Data:** the diagram travels in the URL fragment of `app.diagrams.net` (`#R…`), which the browser doesn't send to the server. The server downloads layout libraries from `viewer.diagrams.net`/jsDelivr, and shape search sends the query to `icons.diagrams.net`.
+- **Prefer Mermaid in Markdown** for diagrams that live in the README (GitHub renders them). Use draw.io for richer architecture or sequence diagrams that need manual layout.
+
 ## Conventions
 
 - **Dependencies:** every direct dependency is pinned to an exact version published **at least 14 days ago** (`.npmrc` sets `save-exact`). `npm run deps:age` fails otherwise and suggests the version to use. To add a package: `npm install <pkg>@<version> --before=<date 14 days ago>`. This keeps its transitive dependencies old enough too.
