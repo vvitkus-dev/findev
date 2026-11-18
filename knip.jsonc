@@ -1,0 +1,9 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  // Dead-code gate (docs/QUALITY_GATES_PLAN.md Q0.8): unused files, exports, dependencies.
+  "entry": ["scripts/*.mjs", "eslint-rules/*.{js,mjs}"],
+  "project": ["src/**/*.ts", "scripts/**/*.mjs", "eslint-rules/**/*.{js,mjs}"],
+  // TEMPORARY: @angular/forms is consumed by the Signal Forms settings page (Implementation Phase 6).
+  // Remove this ignore in step 6.2 — the gate must then pass without it.
+  "ignoreDependencies": ["@angular/forms"],
+}

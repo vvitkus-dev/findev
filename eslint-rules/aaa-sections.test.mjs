@@ -48,7 +48,10 @@ tester.run('local/aaa-sections', rule, {
         expect(b).toBe(2);
       });`,
     },
-    { name: 'it.each form', code: `it.each([1])('x %i', (n) => {\n// Act\nconst r = n;\n// Assert\nexpect(r).toBe(1);\n});` },
+    {
+      name: 'it.each form',
+      code: `it.each([1])('x %i', (n) => {\n// Act\nconst r = n;\n// Assert\nexpect(r).toBe(1);\n});`,
+    },
     { name: 'non-test calls ignored', code: `describe('d', () => { foo(); });` },
   ],
   invalid: [

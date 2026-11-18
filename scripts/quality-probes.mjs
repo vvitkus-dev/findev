@@ -28,7 +28,9 @@ function withFiles(files, check) {
   }
 }
 
-const duplicatedFn = (name) => `export function ${name}(values: readonly number[]): { min: number; max: number; mean: number } {
+const duplicatedFn = (
+  name,
+) => `export function ${name}(values: readonly number[]): { min: number; max: number; mean: number } {
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
   let total = 0;
@@ -63,7 +65,15 @@ const PROBES = [
           'src/app/__quality_probes__/dup-b.ts': duplicatedFn('statsB'),
         },
         () => {
-          const r = run('npx', ['jscpd', '-c', '.jscpd.json', '--reporters', 'console', '--ignore', '**/*.spec.ts,**/node_modules/**']);
+          const r = run('npx', [
+            'jscpd',
+            '-c',
+            '.jscpd.json',
+            '--reporters',
+            'console',
+            '--ignore',
+            '**/*.spec.ts,**/node_modules/**',
+          ]);
           return { ok: r.code !== 0 && /threshold|clone/i.test(r.out), detail: `exit=${r.code}` };
         },
       ),
@@ -75,6 +85,31 @@ const PROBES = [
       return { ok: r.code === 0, detail: `exit=${r.code}` };
     },
   },
+  // Q0.8 — dead code
+  {
+    name: 'knip fails on an unused file/export',
+    run: () =>
+      withFiles(
+        {
+          'src/app/__quality_probes__/dead.ts':
+            'export function neverUsed(): number {\n  return 1;\n}\n',
+        },
+        () => {
+          const r = run('npx', ['knip', '--no-progress']);
+          return {
+            ok: r.code !== 0 && /__quality_probes__\/dead\.ts/.test(r.out),
+            detail: `exit=${r.code}`,
+          };
+        },
+      ),
+  },
+  {
+    name: 'knip passes on the real codebase',
+    run: () => {
+      const r = run('npx', ['knip', '--no-progress']);
+      return { ok: r.code === 0, detail: `exit=${r.code}` };
+    },
+  },
 ];
 
 let failed = 0;
@@ -83,5 +118,9 @@ for (const p of PROBES) {
   if (!ok) failed++;
   console[ok ? 'log' : 'error'](`${ok ? 'PASS' : 'FAIL'}  ${p.name} (${detail})`);
 }
-console.log(failed ? `\n${failed} probe(s) failed` : `\nAll ${PROBES.length} quality probes behaved as expected`);
+console.log(
+  failed
+    ? `\n${failed} probe(s) failed`
+    : `\nAll ${PROBES.length} quality probes behaved as expected`,
+);
 process.exit(failed ? 1 : 0);

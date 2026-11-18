@@ -30,7 +30,10 @@ const restrictedImports = (...patterns) => [
   'error',
   { paths: [FORMS_BAN], patterns: patterns.flat() },
 ];
-const NO_FEATURES = { group: ['**/features/**', '**/features'], message: 'core/shared must not depend on features.' };
+const NO_FEATURES = {
+  group: ['**/features/**', '**/features'],
+  message: 'core/shared must not depend on features.',
+};
 const NO_CORE = { group: ['**/core/**', '**/core'], message: 'shared must not depend on core.' };
 const NO_FRAMEWORK = {
   group: ['@angular/*', '@angular/**', 'rxjs', 'rxjs/*'],

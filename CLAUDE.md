@@ -8,14 +8,14 @@ Interview take-home: a realtime fintech dashboard. An Angular app has two pages,
 
 `docs/IMPLEMENTATION_PLAN.md` is the source of truth. It holds the requirement IDs (R1–R24), the architecture decisions with their trade-offs, the exact interfaces (Wasm ABI, worker protocol, metrics, service), and the phased steps. Each step has deterministic control checks. Work phase by phase. A step is done only when its control checks pass. Commit once per step, using conventional commits.
 
-The repo is currently at **Phase 0**: a fresh Angular 22 scaffold. Paths and scripts marked *(planned)* below do not exist yet. They are created by the plan steps named next to them.
+The repo is currently at **Phase 0**: a fresh Angular 22 scaffold. Paths and scripts marked _(planned)_ below do not exist yet. They are created by the plan steps named next to them.
 
 ## Stack
 
 - Angular 22.2: standalone, **zoneless** (there is no zone.js and no `provideZoneChangeDetection`), signals, `@angular/build:application` (esbuild).
 - TypeScript 6.0. Vitest 5 runs through `@angular/build:unit-test` with jsdom (no Karma, no `vitest.config` for app tests).
 - Node 24 (`.nvmrc`), npm 11.
-- Rust stable on `wasm32-unknown-unknown`, pinned by `rust-toolchain.toml` *(planned, step 0.2)*. Rust is **not installed locally yet**.
+- Rust stable on `wasm32-unknown-unknown`, pinned by `rust-toolchain.toml` _(planned, step 0.2)_. Rust is **not installed locally yet**.
 
 ## Commands
 
@@ -28,11 +28,12 @@ npx ng test --watch=false --filter '^Metrics'                                # b
 npx ng test --watch=false --coverage
 ```
 
-*(planned, step 0.5)* These package scripts are defined in Phase 0. Use them once they exist:
+_(planned, step 0.5)_ These package scripts are defined in Phase 0. Use them once they exist:
+
 - `npm run wasm:build`: cargo release build, then copies the output to `public/wasm/producer.wasm` (git-ignored). `prestart` and `prebuild` run it.
 - `npm run wasm:verify`: checks the export names, `abi_version`, and the size budget.
 - `npm run test:rust`: `cargo test` + `clippy -D warnings` + `fmt --check` for `wasm/producer`.
-- `npm run test:wasm`: Vitest in a **Node** environment (`wasm-tests/vitest.config.ts`) that runs the *compiled* `.wasm` through the TS adapter.
+- `npm run test:wasm`: Vitest in a **Node** environment (`wasm-tests/vitest.config.ts`) that runs the _compiled_ `.wasm` through the TS adapter.
 - `npm run verify`: the global gate (type-check, Rust tests, Wasm tests, Angular tests, build). It must pass before any push.
 
 ## Architecture (target, see plan §1–§3)
@@ -49,9 +50,10 @@ Data flow: `Rust producer (Wasm)` → `ProducerEngine in worker (TS)` → snapsh
 - **Scheduling.** The worker reschedules itself with `setTimeout`, delayed by `max(0, interval − elapsed)`. There is no `setInterval` and no catch-up after a pause or a slow batch. A batch generated before Pause but delivered after it is still accepted, because it has the same `runId`.
 - **Wasm URL.** The main thread resolves it from `document.baseURI` and sends it in the `init` message, because the app is deployed under a `/<repo>/` sub-path.
 
-## Deployment *(planned, Phase 8)*
+## Deployment _(planned, Phase 8)_
 
 GitHub Pages via GitHub Actions (`.github/workflows/ci-deploy.yml`):
+
 - **Every push** builds and runs all tests.
 - **Only pushes to `main`** deploy. The deploy build runs `ng build --base-href "/findev/"` and copies `index.html` to `404.html` as the SPA fallback.
 - Repo: https://github.com/vvitkus-dev/findev. A push to `main` redeploys the live demo; there are no manual deploy steps.
@@ -61,6 +63,7 @@ GitHub Pages via GitHub Actions (`.github/workflows/ci-deploy.yml`):
 **Before writing or changing any Angular code** (components, services, DI, signals, forms, routing, pipes, styles, Angular tests), invoke the project skill `angular-developer` (`.claude/skills/angular-developer/SKILL.md`) and read the `references/*.md` files the task needs. The skill is Angular's official agent skill (https://angular.dev/ai/agent-skills). It is pinned in `skills-lock.json`; restore it with `npx skills experimental_install` and update it with `npx skills update angular-developer -p`. Don't edit the skill files by hand.
 
 Plan §4.0 lists the skill rules this repo applies. The ones most often missed:
+
 - **Naming is "Intent over Role"** (v20+, matching the scaffold's `app.ts`/`class App`): `metrics-table.ts` → `class MetricsTable`, `producer-store.ts` → `class ProducerStore`. No `.component.ts`/`.service.ts` suffixes and no `Component`/`Service` class suffixes. Types go in `*.model.ts`.
 - **Services:** `@Service()`, not `@Injectable({providedIn:'root'})`. Private writable signals are exposed with `.asReadonly()` or `computed()`. Use `inject()`.
 - **Components:** OnPush is the v22 default, so don't set `changeDetection`. Use `input()`/`output()`, `@if/@for/@switch` (`track` is required), and self-closing tags. No expensive calls in templates: use `computed()` or pure pipes.
@@ -70,9 +73,10 @@ Plan §4.0 lists the skill rules this repo applies. The ones most often missed:
 
 Run the guard greps in plan §4.0 ("Control checks for the standard"). They must all return empty.
 
-## Quality gates *(planned, `docs/QUALITY_GATES_PLAN.md`)*
+## Quality gates _(planned, `docs/QUALITY_GATES_PLAN.md`)_
 
 All thresholds are hard failures, and deploy is blocked unless every gate is green.
+
 - **Errors and warnings:** 0 TS errors (strict + `strictTemplates`); ESLint `--max-warnings 0`.
 - **Complexity:** cyclomatic ≤ 10, cognitive ≤ 15, template cyclomatic ≤ 8.
 - **Size:** function ≤ 60 lines, file ≤ 300 lines.

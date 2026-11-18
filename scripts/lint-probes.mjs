@@ -58,7 +58,8 @@ const PROBES = [
   {
     name: 'template cyclomatic complexity > 8',
     file: P + 'tpl-complexity.html',
-    code: Array.from({ length: 9 }, (_, i) => `@if (v === ${i}) {<span>${i}</span>}`).join('\n') + '\n',
+    code:
+      Array.from({ length: 9 }, (_, i) => `@if (v === ${i}) {<span>${i}</span>}`).join('\n') + '\n',
     expect: ['@angular-eslint/template/cyclomatic-complexity'],
   },
   // Q0.4 — architecture boundaries & API bans
@@ -197,5 +198,7 @@ try {
   for (const f of createdFiles) rmSync(f, { force: true });
   for (const d of createdDirs.reverse()) rmSync(d, { recursive: true, force: true });
 }
-console.log(failed ? `\n${failed} probe(s) failed` : `\nAll ${PROBES.length} probes fired as expected`);
+console.log(
+  failed ? `\n${failed} probe(s) failed` : `\nAll ${PROBES.length} probes fired as expected`,
+);
 process.exit(failed ? 1 : 0);

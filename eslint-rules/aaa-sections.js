@@ -9,7 +9,7 @@
 const SECTION = /^\s*(Arrange|Act & Assert|Act|Assert)\b/;
 const TEST_FNS = new Set(['it', 'test']);
 
-/** @param {import('estree').Node} callee */
+/** @param {import('eslint').Rule.Node} callee */
 function isTestCall(callee) {
   if (callee.type === 'Identifier') return TEST_FNS.has(callee.name);
   // it.each(...)(...) / test.concurrent(...)
@@ -53,13 +53,18 @@ module.exports = {
         const acts = sections.filter((s) => s === 'Act' || s === 'Act & Assert');
         if (acts.length === 0) return context.report({ node, messageId: 'missingAct' });
         if (acts.length > 1) {
-          return context.report({ node, messageId: 'multipleAct', data: { count: String(acts.length) } });
+          return context.report({
+            node,
+            messageId: 'multipleAct',
+            data: { count: String(acts.length) },
+          });
         }
 
         const actIdx = sections.findIndex((s) => s === 'Act' || s === 'Act & Assert');
         const arranges = sections.filter((s) => s === 'Arrange');
         if (arranges.length > 1) context.report({ node, messageId: 'multipleArrange' });
-        if (sections.lastIndexOf('Arrange') > actIdx) context.report({ node, messageId: 'arrangeAfterAct' });
+        if (sections.lastIndexOf('Arrange') > actIdx)
+          context.report({ node, messageId: 'arrangeAfterAct' });
 
         const combined = sections[actIdx] === 'Act & Assert';
         const assertAfterAct = sections.slice(actIdx + 1).includes('Assert');

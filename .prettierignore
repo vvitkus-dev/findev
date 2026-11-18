@@ -1,0 +1,9 @@
+dist
+.angular
+coverage
+reports
+public/wasm
+package-lock.json
+skills-lock.json
+.claude/skills
+wasm/producer/target
