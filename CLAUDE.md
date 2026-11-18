@@ -15,7 +15,7 @@ The repo is currently at **Phase 0**: a fresh Angular 22 scaffold. Paths and scr
 - Angular 22.2: standalone, **zoneless** (there is no zone.js and no `provideZoneChangeDetection`), signals, `@angular/build:application` (esbuild).
 - TypeScript 6.0. Vitest 5 runs through `@angular/build:unit-test` with jsdom (no Karma, no `vitest.config` for app tests).
 - Node 24 (`.nvmrc`), npm 11.
-- Rust stable on `wasm32-unknown-unknown`, pinned by `rust-toolchain.toml` _(planned, step 0.2)_. Rust is **not installed locally yet**.
+- Rust **1.99.0**, pinned by `rust-toolchain.toml` (2024 edition, target `wasm32-unknown-unknown`, with clippy, rustfmt and llvm-tools), installed through rustup. If `cargo` isn't on `PATH` in a non-login shell, run `. "$HOME/.cargo/env"` first.
 
 ## Commands
 

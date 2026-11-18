@@ -1,0 +1,7 @@
+# Pinned Rust toolchain (Implementation Phase 0.2). CI and local builds use exactly this.
+# 1.99.0 (2026-10-01): newest stable that was at least two weeks old when pinned.
+[toolchain]
+channel = "1.99.0"
+profile = "minimal"
+components = ["clippy", "rustfmt", "llvm-tools-preview"]
+targets = ["wasm32-unknown-unknown"]

@@ -71,10 +71,10 @@
 
 ### 1.2 JS ↔ Wasm interface
 
-| Option                                                                                                       | Pros                                                                                                                                               | Cons                                                                                                                  | Verdict    |
-| ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------- |
-| `wasm-bindgen` + `wasm-pack`                                                                                 | Ergonomic, generates TS types                                                                                                                      | Generated JS glue must be bundled into the worker; extra tool; returning arrays copies; harder to explain bytes-level | Rejected   |
-| **Raw C ABI** (`#[no_mangle] extern "C"`), records written into linear memory, JS reads a `Uint32Array` view | Zero copies, zero glue, ~6 exported functions, fully explainable, loads with plain `WebAssembly.instantiate` in both browser worker and Node tests | Manual pointer handling; must re-create views if memory grows                                                         | **Chosen** |
+| Option                                                                                                               | Pros                                                                                                                                               | Cons                                                                                                                  | Verdict    |
+| -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `wasm-bindgen` + `wasm-pack`                                                                                         | Ergonomic, generates TS types                                                                                                                      | Generated JS glue must be bundled into the worker; extra tool; returning arrays copies; harder to explain bytes-level | Rejected   |
+| **Raw C ABI** (`#[unsafe(no_mangle)] extern "C"`), records written into linear memory, JS reads a `Uint32Array` view | Zero copies, zero glue, ~6 exported functions, fully explainable, loads with plain `WebAssembly.instantiate` in both browser worker and Node tests | Manual pointer handling; must re-create views if memory grows                                                         | **Chosen** |
 
 Rules for the raw ABI (enforced by tests):
 
@@ -208,19 +208,20 @@ Signal Forms rules that apply here (from `.claude/skills/angular-developer/refer
 ### 3.1 Wasm ABI (`wasm/producer/src/lib.rs`)
 
 ```rust
+// Rust 2024 edition: exported symbols need `#[unsafe(no_mangle)]` (verified with toolchain 1.99.0).
 pub const ABI_VERSION: u32 = 1;
 pub const RECORD_WORDS: u32 = 7;          // u32 words per update record
 pub const MAX_INSTRUMENTS: u32 = 50;
 pub const MAX_BATCH: u32 = 1000;
 
-#[no_mangle] pub extern "C" fn abi_version() -> u32;
-#[no_mangle] pub extern "C" fn record_words() -> u32;
+#[unsafe(no_mangle)] pub extern "C" fn abi_version() -> u32;
+#[unsafe(no_mangle)] pub extern "C" fn record_words() -> u32;
 /// Returns 0 (null) when instrument_count ∉ [1, MAX_INSTRUMENTS].
-#[no_mangle] pub extern "C" fn producer_create(instrument_count: u32, seed_lo: u32, seed_hi: u32) -> *mut Producer;
+#[unsafe(no_mangle)] pub extern "C" fn producer_create(instrument_count: u32, seed_lo: u32, seed_hi: u32) -> *mut Producer;
 /// Writes exactly `n` records into the producer-owned buffer; returns pointer to first record.
 /// Returns 0 when producer is null or n ∉ [1, MAX_BATCH].
-#[no_mangle] pub extern "C" fn producer_generate(p: *mut Producer, n: u32) -> *const u32;
-#[no_mangle] pub extern "C" fn producer_destroy(p: *mut Producer);
+#[unsafe(no_mangle)] pub extern "C" fn producer_generate(p: *mut Producer, n: u32) -> *const u32;
+#[unsafe(no_mangle)] pub extern "C" fn producer_destroy(p: *mut Producer);
 ```
 
 `memory` is exported by default.
@@ -405,6 +406,13 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 | 0.4  | Remove placeholder `app.html` content; minimal shell `<router-outlet />`; update `app.spec.ts` (Act → `whenStable` → Assert).                                                              | `npx ng test --watch=false` exit 0                                                                                  |
 | 0.5  | npm scripts: `wasm:build`, `wasm:verify`, `test:wasm`, `test:rust`, `lint:types`, `verify`, `prestart`/`prebuild` → `wasm:build`. `.gitignore`: `/public/wasm/`, `/wasm/producer/target/`. | `npm run` lists all scripts; `git check-ignore public/wasm/x.wasm` exit 0                                           |
 | 0.6  | Prettier check script `format:check`.                                                                                                                                                      | `npm run format:check` exit 0                                                                                       |
+
+> **Status (2026-11-18): Phase 0 complete.**
+>
+> - 0.2: rustup is installed with no default toolchain. `rust-toolchain.toml` pins **1.99.0** (1.100.0 was only 6 days old) with `clippy`, `rustfmt`, `llvm-tools-preview` and `wasm32-unknown-unknown`. A smoke build of a throwaway crate gave a 320-byte module, and `add(2,40)` returned 42 in Node.
+> - 0.3 and 0.6 were done as Q0.1 and Q0.11.
+> - 0.4: the shell replaced the CLI placeholder, test first (red, then green).
+> - 0.5: the quality scripts and the Wasm git-ignores exist. The `wasm:*` and `test:rust` scripts come with Phase 1, when there is something for them to run.
 
 **Phase 0 gate:** `npx ng build` exit 0 and `npx ng test --watch=false` exit 0 on a clean clone (`git clean -xdf -e node_modules && npm ci`).
 
