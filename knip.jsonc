@@ -1,7 +1,8 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
   // Dead-code gate (docs/QUALITY_GATES_PLAN.md Q0.8): unused files, exports, dependencies.
-  "entry": ["scripts/*.mjs", "eslint-rules/*.{js,mjs}"],
+  // Web Workers are entry points: they are loaded via `new Worker(new URL(...))`, never imported.
+  "entry": ["scripts/*.mjs", "eslint-rules/*.{js,mjs}", "src/**/*.worker.ts"],
   "project": [
     "src/**/*.ts",
     "wasm-tests/**/*.ts",

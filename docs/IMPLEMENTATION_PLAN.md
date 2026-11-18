@@ -679,6 +679,20 @@ Behaviour:
 >   - `producer-engine-ordering.spec.ts`: start before ready; pause before load; init and runtime errors; invalid settings; a slow 700 ms batch gives batch starts at 0/700/1400/1900/2400.
 > - **Mutation check:** 10 injected engine bugs, all caught. They covered slow-batch compensation, resume catch-up, missing dispose, a leaked pause timer, a synchronous first batch, `seq` off by one, shared accumulators, dispose not stopping, reload on every init, and an error that doesn't stop the run. The leaked pause timer first survived and needed the new single-chain test.
 
+> **3.7 status (2026-11-18): done.**
+>
+> - **`producer.worker.ts`:** a 22-line adapter that builds `ProducerEngine` with the real scheduler and clock and `loadWasmGeneratorFactory`, and calls `close()` after `dispose`.
+> - **`tsconfig.worker.json`:** `lib: ["es2022","webworker"]`, includes `src/**/*.worker.ts`. `tsconfig.app.json` excludes worker files, the root `tsconfig.json` references the new config, and it is part of `lint:types`.
+> - **`angular.json`:** `build.options.webWorkerTsConfig`. The `unit-test` builder has no such option.
+> - **knip:** `src/**/*.worker.ts` is declared as an entry point.
+> - **Checks:**
+>   - `tsc -p tsconfig.worker.json` exits 0.
+>   - With a temporary `new Worker(new URL(...))` reference, `ng build` emits `worker-*.js` (6.6 kB, containing the Wasm adapter). The reference was removed afterwards.
+>   - The permanent `worker-*.js` build check moves to 4.1, where `WORKER_FACTORY` is the only allowed `new Worker` call.
+> - **Side fix:** the jscpd and core-coverage self-test probes had started to pass silently, because the codebase outgrew their fixed sizes. Both now size themselves from the current code: 5 % duplicated lines, and untested lines calculated from a clean coverage baseline.
+>
+> **Phase 3 gate (2026-11-18): passed.** `ng test --watch=false`: 130 tests in 1.2 s (wall time 2 s, limit 30 s). Full `npm run verify` exit 0.
+
 **Phase 3 gate:** `npx ng test --watch=false` exit 0; total test wall time < 30 s (`time npx ng test --watch=false`) — proves no real-time waits.
 
 ---

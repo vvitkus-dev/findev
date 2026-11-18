@@ -30,7 +30,8 @@
                 "input": "public"
               }
             ],
-            "styles": []
+            "styles": [],
+            "webWorkerTsConfig": "tsconfig.worker.json"
           },
           "configurations": {
             "production": {
