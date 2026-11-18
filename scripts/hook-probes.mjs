@@ -58,6 +58,28 @@ const PROBES = [
       };
     },
   },
+  // Q1.2 — commit-msg (commitlint)
+  {
+    name: 'commit-msg blocks a non-conventional message',
+    run: () => {
+      const r = tryCommit({ 'src/app/__hook_probe.ts': CLEAN_TS }, 'Added stuff');
+      return {
+        ok: !r.committed && /type-empty|subject-empty/.test(r.out),
+        detail: `committed=${r.committed}`,
+      };
+    },
+  },
+  {
+    name: 'commit-msg blocks AI attribution',
+    run: () => {
+      const msg = 'feat: probe\n\nCo-Authored-By: Claude <noreply@anthropic.com>';
+      const r = tryCommit({ 'src/app/__hook_probe.ts': CLEAN_TS }, msg);
+      return {
+        ok: !r.committed && /no-ai-attribution/.test(r.out),
+        detail: `committed=${r.committed}`,
+      };
+    },
+  },
 ];
 
 let failed = 0;
