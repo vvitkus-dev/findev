@@ -853,6 +853,8 @@ Behaviour:
 > - **First CI run** failed: `cov:rust` could not write to the missing `reports/`, fixed in `f69c687`. Run 44354797499 is fully green, deployed, and its smoke check passed against `f69c687`. A Chrome check of the live site shows 5 streaming rows and footer `f69c687`, with the worker and wasm returning 200.
 > - **Phase 8 gate:** in a fresh clone the README commands and `npm run verify` all exit 0, and so does a step-by-step replay of the CI `test` job. A Chrome check of the `/findev/` artifact covered the dashboard, a cold deep link to Settings, Apply → 3 rows, and Pause/Resume.
 
+> **8.5 status (2026-11-18): done.** CI run 44357027657 deployed `5e0b32e`, and its smoke check waited until the live footer showed that SHA.
+
 **Phase 8 gate:** fresh clone in temp dir → follow README verbatim → `npm run verify` exit 0; live URL passes smoke script.
 
 ---

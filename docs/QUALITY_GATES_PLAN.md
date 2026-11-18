@@ -244,6 +244,21 @@ Each step lists **work** and a **deterministic control check** (command → exac
 | Q3.4 | Visual spec 7: `expect(page).toHaveScreenshot('settings.png', {maxDiffPixelRatio: 0.01})`; dashboard: pause first, `mask: [page.getByTestId('metric-cell')]`. Baselines generated **in the CI image** for deterministic rendering: script `e2e:update-snapshots` = `docker run --rm -v $PWD:/w -w /w mcr.microsoft.com/playwright:v<pinned>-noble npx playwright test --update-snapshots --grep @visual`. Snapshots committed under `e2e/__screenshots__/`.         | Change a heading colour → visual test fails with a diff image highlighting the region (the "red panel"); revert → passes |
 | Q3.5 | Post-deploy smoke: same Playwright project with `E2E_BASE_URL=https://vvitkus-dev.github.io/findev/ --grep @smoke` (specs 1 and 5 tagged `@smoke`).                                                                                                                                                                                                                                                                                                                 | CI `smoke` job green after deploy                                                                                        |
 
+> **Q3.1–Q3.3 + Q3.5 status (2026-11-18): done. Q3.4 (visual) is open: its baselines must be generated in the pinned Playwright image, which needs Docker.**
+>
+> - **Q3.1, with three changes from the plan:**
+>   - Playwright 1.64.1 is pinned at least 14 days old, so it isn't installed through `npm init playwright@latest`.
+>   - The suite runs on the Pages-shaped bundle (`scripts/build-pages.mjs`, base `/findev/` + `404.html`), which `scripts/serve-dist.mjs` serves the way Pages does. That tests the sub-path worker and Wasm URLs, which `ng serve` can't.
+>   - The config is typed through `e2e/tsconfig.json` (ESLint `defaultProject`).
+> - **Q3.2:** 11 tests for specs 1–5, more than the planned 5–7 because the AAA rule allows one Act per test. They use role and label locators only. Fixed waits are a 200 ms settle after Pause (an in-flight batch is accepted by design) and a 1 s observation window.
+> - **AAA rule:** it now covers `e2e/**/*.e2e.ts` and skips Playwright suites and hooks (`test.describe`, `test.beforeEach`, …). Two new lint probes prove both.
+> - **Q3.3:** 3 axe scans (dashboard, settings with a field error, the error banner) against WCAG 2.0/2.1 A and AA. A throwaway probe (an unnamed button and an image without alt) made the check fail as expected.
+> - **Q3.5:** the `smoke-e2e` job runs the 4 `@smoke` tests against the live URL after `smoke` has seen the new SHA.
+> - **CI:** `test` uploads the bundle; `e2e` runs in `mcr.microsoft.com/playwright:v1.64.1-noble` (pinned by digest) on that exact bundle; `deploy` needs `e2e`. `verify` ends with `build:pages` + `playwright test`.
+> - **Evidence:**
+>   - Locally, `--repeat-each 10` and `--repeat-each 5 --workers 12` gave 165/165 passes.
+>   - CI run 44358492840: every job green, e2e 14/14 with no retries, live smoke 4/4.
+
 **Q3 gate:** `npm run e2e` exit 0 locally and in CI; flaky count = 0 over 3 consecutive CI runs.
 
 ### Phase Q4 — CI integration, pyramid & PR hygiene (merge into Implementation Phase 8)
