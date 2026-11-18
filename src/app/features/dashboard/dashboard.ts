@@ -10,7 +10,7 @@ import { ProducerStatus } from './components/producer-status';
   template: `
     <h2>Dashboard</h2>
     <app-producer-status />
-    <app-metrics-table [rows]="rows()" />
+    <app-metrics-table [rows]="store.rows()" [repaintsLimited]="store.repaintsLimited()" />
   `,
   styles: `
     h2 {
@@ -20,5 +20,5 @@ import { ProducerStatus } from './components/producer-status';
   `,
 })
 export class Dashboard {
-  protected readonly rows = inject(ProducerStore).rows;
+  protected readonly store = inject(ProducerStore);
 }

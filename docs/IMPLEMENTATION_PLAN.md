@@ -883,6 +883,19 @@ Behaviour:
 > - **9.4, background tab:** headless Chrome never hides a tab, so the page was frozen for 30 s through CDP instead (`Page.setWebLifecycleState`). 59 batches over the 30 s (nominal 2/s), then 4 in the next 2 s: no catch-up burst, and the totals continued.
 > - **9.5, traceability:** the README's "Requirements coverage" section maps R1–R24 to their specs or manual checks.
 > - **Fixed along the way** (`05d0d14`): a batch that lands after Pause no longer brings the measured rate back while paused.
+> - **Slow devices (follow-up, 2026-11-18):** at max load with a 20× CPU slowdown, the main thread
+>   saturated: 28–48 fps, up to 5 long tasks a second, mostly layout, commit and paint of 250 cells
+>   per batch, and worse with the accessibility tree on. `RepaintPacer`
+>   (`core/producer/repaint-pacer.ts`) now limits table repaints to 10/s:
+>   - **Engages** after 3 repaints slower than 50 ms within a second. A repaint's cost is the
+>     longest of the two frames after it. Other long frames don't count: an earlier version
+>     counted every frame and throttled at the default rate during start-up in the CI container.
+>   - **Releases** after 3 s with every repaint under 25 ms (hysteresis). A quick relapse doubles
+>     the next calm period, up to 60 s (backoff), so a device that copes only at 10/s doesn't flap.
+>   - **The store** still processes every snapshot. Apply drops a deferred repaint and Pause
+>     flushes it. The note sits at the end of the table caption, so it never moves the table.
+>   - **Result** (20×, accessibility tree on, 40 s): 56.5 fps and 0.2 long tasks/s, against
+>     34.5 fps and 4.8/s before. It never engages at 1× or 4×, or at the default rate.
 > - **Still open (minor):** the measured rate is recalculated only when a snapshot arrives, so a stalled worker would keep showing the last value instead of 0.
 
 **Final gate (Definition of Done):**

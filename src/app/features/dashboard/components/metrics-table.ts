@@ -13,8 +13,12 @@ import { CentsPipe, ImbalancePipe, VolumePipe } from '../../../shared/format/mar
   template: `
     <div class="scroll">
       <table>
+        <!-- The note ends the caption line, so appearing never moves the table. -->
         <caption>
           Live metrics per instrument (prices in USD)
+          @if (repaintsLimited()) {
+            <span class="note">· refreshing 10×/s on this device</span>
+          }
         </caption>
         <thead>
           <tr>
@@ -64,6 +68,9 @@ import { CentsPipe, ImbalancePipe, VolumePipe } from '../../../shared/format/mar
       padding-block: 0.5rem;
       color: #555;
     }
+    .note {
+      font-size: 0.875rem;
+    }
     th,
     td {
       padding: 0.375rem 0.75rem;
@@ -88,4 +95,6 @@ import { CentsPipe, ImbalancePipe, VolumePipe } from '../../../shared/format/mar
 })
 export class MetricsTable {
   readonly rows = input.required<readonly InstrumentMetrics[]>();
+  /** True while the store limits repaints on a slow device; the caption then says so. */
+  readonly repaintsLimited = input(false);
 }

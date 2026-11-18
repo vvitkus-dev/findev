@@ -3,9 +3,17 @@ import { createAccumulators } from '../engine/metrics';
 import type { FromWorker } from '../engine/protocol.model';
 import { ManualScheduler } from '../engine/testing/manual-scheduler';
 import { ProducerStore } from '../producer-store';
-import { PRODUCER_CLOCK, SEED_SOURCE, WASM_URL, WORKER_FACTORY } from '../producer-tokens';
+import {
+  FRAME_SOURCE,
+  PRODUCER_CLOCK,
+  PRODUCER_SCHEDULER,
+  SEED_SOURCE,
+  WASM_URL,
+  WORKER_FACTORY,
+} from '../producer-tokens';
 import { FakeWorkerFactory } from './fake-worker';
 import type { FakeWorker } from './fake-worker';
+import { ManualFrames } from './manual-frames';
 
 export const TEST_WASM_URL = 'https://example.test/findev/wasm/producer.wasm';
 export const TEST_SEED = [7, 0] as const;
@@ -14,7 +22,10 @@ type Snapshot = Extract<FromWorker, { type: 'snapshot' }>;
 
 export interface StoreHarness {
   readonly workers: FakeWorkerFactory;
+  /** Virtual time: the store's clock and its repaint timers. */
   readonly clock: ManualScheduler;
+  /** Animation frames the repaint pacer watches. */
+  readonly frames: ManualFrames;
   /** Injects the store (the first injection constructs it). */
   store(): ProducerStore;
   /** The most recently created fake worker. */
@@ -25,17 +36,21 @@ export interface StoreHarness {
 export function provideStoreTestbed(): StoreHarness {
   const workers = new FakeWorkerFactory();
   const clock = new ManualScheduler();
+  const frames = new ManualFrames();
   TestBed.configureTestingModule({
     providers: [
       { provide: WORKER_FACTORY, useValue: workers.create },
       { provide: SEED_SOURCE, useValue: () => TEST_SEED },
       { provide: WASM_URL, useValue: TEST_WASM_URL },
       { provide: PRODUCER_CLOCK, useValue: clock },
+      { provide: PRODUCER_SCHEDULER, useValue: clock },
+      { provide: FRAME_SOURCE, useValue: frames },
     ],
   });
   return {
     workers,
     clock,
+    frames,
     store: () => TestBed.inject(ProducerStore),
     worker: () => workers.current,
   };

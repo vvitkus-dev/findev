@@ -112,4 +112,23 @@ describe('MetricsTable', () => {
     expect(cols.every((th) => th.getAttribute('scope') === 'col')).toBe(true);
     expect(host.querySelector('[aria-live]')).toBeNull();
   });
+
+  it('the caption says so while repaints are limited, and only then', async () => {
+    // Arrange
+    fixture.componentRef.setInput('rows', [WORKED]);
+    await fixture.whenStable();
+    const caption = (): string | undefined =>
+      (fixture.nativeElement as HTMLElement).querySelector('caption')?.textContent.trim();
+    const normal = caption();
+
+    // Act
+    fixture.componentRef.setInput('repaintsLimited', true);
+    await fixture.whenStable();
+
+    // Assert
+    expect(normal).toBe('Live metrics per instrument (prices in USD)');
+    expect(caption()).toBe(
+      'Live metrics per instrument (prices in USD) · refreshing 10×/s on this device',
+    );
+  });
 });

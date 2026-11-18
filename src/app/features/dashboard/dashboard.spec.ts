@@ -51,4 +51,15 @@ describe('Dashboard', () => {
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
   });
+
+  it("passes the store's repaint limit to the table caption", async () => {
+    // Arrange
+    stub.repaintsLimited.set(true);
+
+    // Act
+    await fixture.whenStable();
+
+    // Assert
+    expect(host().querySelector('caption .note')?.textContent).toContain('refreshing 10×/s');
+  });
 });

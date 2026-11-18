@@ -14,6 +14,7 @@ type StoreSurface = Pick<
   | 'stats'
   | 'error'
   | 'rows'
+  | 'repaintsLimited'
   | 'apply'
   | 'pause'
   | 'resume'
@@ -30,6 +31,7 @@ export class ProducerStoreStub implements StoreSurface {
   readonly runId = signal(1);
   readonly stats = signal<ProducerStats>({ updatesPerSec: 0, batches: 0, updates: 0 });
   readonly error = signal<string | null>(null);
+  readonly repaintsLimited = signal(false);
   readonly instrumentCount = signal(DEFAULT_SETTINGS.instrumentCount);
   readonly rows = computed(() => createAccumulators(this.instrumentCount()).map(deriveMetrics));
   /** Command names in call order, e.g. `['pause', 'resume']`. */

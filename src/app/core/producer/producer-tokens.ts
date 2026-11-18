@@ -1,7 +1,8 @@
 import { DOCUMENT, InjectionToken, inject } from '@angular/core';
-import { realClock } from './engine/scheduler';
-import type { Clock } from './engine/scheduler.model';
+import { realClock, realScheduler } from './engine/scheduler';
+import type { Clock, Scheduler } from './engine/scheduler.model';
 import type { SeedSource, WorkerFactory } from './producer-tokens.model';
+import type { FrameSource } from './repaint-pacer.model';
 
 /**
  * Creates the producer Web Worker. This default is the only Worker construction in the app
@@ -28,4 +29,19 @@ export const WASM_URL = new InjectionToken<string>('producer.wasmUrl', {
 /** Monotonic clock for the throughput meter; tests use `ManualScheduler`. */
 export const PRODUCER_CLOCK = new InjectionToken<Clock>('producer.clock', {
   factory: () => realClock,
+});
+
+/** Timers for deferred repaints on the main thread; tests use `ManualScheduler`. */
+export const PRODUCER_SCHEDULER = new InjectionToken<Scheduler>('producer.scheduler', {
+  factory: () => realScheduler,
+});
+
+/** Animation frames, watched to detect a device that can't keep up; tests use `ManualFrames`. */
+export const FRAME_SOURCE = new InjectionToken<FrameSource>('producer.frameSource', {
+  factory: () => ({
+    request: (callback) => requestAnimationFrame(callback),
+    cancel: (handle) => {
+      cancelAnimationFrame(handle);
+    },
+  }),
 });

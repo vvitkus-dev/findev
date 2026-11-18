@@ -1,6 +1,13 @@
 import { TestBed } from '@angular/core/testing';
-import { realClock } from './engine/scheduler';
-import { PRODUCER_CLOCK, SEED_SOURCE, WASM_URL, WORKER_FACTORY } from './producer-tokens';
+import { realClock, realScheduler } from './engine/scheduler';
+import {
+  FRAME_SOURCE,
+  PRODUCER_CLOCK,
+  PRODUCER_SCHEDULER,
+  SEED_SOURCE,
+  WASM_URL,
+  WORKER_FACTORY,
+} from './producer-tokens';
 
 describe('producer tokens (defaults)', () => {
   afterEach(() => {
@@ -62,5 +69,31 @@ describe('producer tokens (defaults)', () => {
 
     // Assert
     expect(clock).toBe(realClock);
+  });
+
+  it('PRODUCER_SCHEDULER defaults to setTimeout-based timers', () => {
+    // Act
+    const scheduler = TestBed.inject(PRODUCER_SCHEDULER);
+
+    // Assert
+    expect(scheduler).toBe(realScheduler);
+  });
+
+  it('FRAME_SOURCE requests and cancels real animation frames', () => {
+    // Arrange
+    const request = vi.fn<(cb: FrameRequestCallback) => number>(() => 42);
+    const cancel = vi.fn<(handle: number) => void>();
+    vi.stubGlobal('requestAnimationFrame', request);
+    vi.stubGlobal('cancelAnimationFrame', cancel);
+    const frames = TestBed.inject(FRAME_SOURCE);
+    const callback = (): void => undefined;
+
+    // Act
+    const handle = frames.request(callback);
+    frames.cancel(handle);
+
+    // Assert
+    expect(request).toHaveBeenCalledWith(callback);
+    expect(cancel).toHaveBeenCalledWith(42);
   });
 });

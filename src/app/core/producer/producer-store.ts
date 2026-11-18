@@ -4,12 +4,26 @@ import { DEFAULT_SETTINGS, validateSettings } from './engine/producer-settings';
 import type { ProducerSettings } from './engine/producer-settings.model';
 import type { FromWorker, InstrumentAccumulatorDto, ToWorker } from './engine/protocol.model';
 import type { ProducerStats, ProducerStatus } from './producer-store.model';
-import { PRODUCER_CLOCK, SEED_SOURCE, WASM_URL, WORKER_FACTORY } from './producer-tokens';
+import {
+  FRAME_SOURCE,
+  PRODUCER_CLOCK,
+  PRODUCER_SCHEDULER,
+  SEED_SOURCE,
+  WASM_URL,
+  WORKER_FACTORY,
+} from './producer-tokens';
 import type { WorkerPort } from './producer-tokens.model';
+import { RepaintPacer } from './repaint-pacer';
 import { ThroughputMeter } from './throughput-meter';
 
 type Snapshot = Extract<FromWorker, { type: 'snapshot' }>;
 type WorkerError = Extract<FromWorker, { type: 'error' }>;
+
+/** What one repaint of the dashboard shows. */
+interface DisplayState {
+  readonly instruments: readonly InstrumentAccumulatorDto[];
+  readonly stats: ProducerStats;
+}
 
 const EMPTY_STATS: ProducerStats = { updatesPerSec: 0, batches: 0, updates: 0 };
 
@@ -24,6 +38,9 @@ const describeError = (m: WorkerError): string =>
  *
  * Run isolation: every run gets a new `runId`; snapshots, statuses and errors from any
  * other run are dropped, and a snapshot whose `seq` is not newer than the last one is ignored.
+ *
+ * Every accepted snapshot is processed, but repaints go through a `RepaintPacer`: on a device
+ * that can't keep up, the dashboard repaints at most 10 times a second with the latest totals.
  */
 @Service()
 export class ProducerStore {
@@ -32,6 +49,16 @@ export class ProducerStore {
   private readonly wasmUrl = inject(WASM_URL);
   private readonly clock = inject(PRODUCER_CLOCK);
   private readonly meter = new ThroughputMeter();
+  private readonly pacer = new RepaintPacer<DisplayState>(
+    { clock: this.clock, scheduler: inject(PRODUCER_SCHEDULER), frames: inject(FRAME_SOURCE) },
+    (display) => {
+      this.accumulators.set(display.instruments);
+      this.statsState.set(display.stats);
+    },
+    (throttled) => {
+      this.repaintsLimitedState.set(throttled);
+    },
+  );
 
   private worker: WorkerPort | null = null;
   private lastSeq = -1;
@@ -44,24 +71,30 @@ export class ProducerStore {
   );
   private readonly statsState = signal<ProducerStats>(EMPTY_STATS);
   private readonly errorState = signal<string | null>(null);
+  private readonly repaintsLimitedState = signal(false);
 
   readonly status = this.statusState.asReadonly();
   readonly settings = this.settingsState.asReadonly();
   readonly runId = this.runIdState.asReadonly();
   readonly stats = this.statsState.asReadonly();
   readonly error = this.errorState.asReadonly();
+  /** True while repaints are limited to 10/s because this device can't keep up. */
+  readonly repaintsLimited = this.repaintsLimitedState.asReadonly();
   /** Display metrics, derived from the raw sums of the latest accepted snapshot. */
   readonly rows = computed(() => this.accumulators().map(deriveMetrics));
 
   constructor() {
     inject(DestroyRef).onDestroy(() => {
+      this.pacer.stop();
       this.disconnect(true);
     });
   }
 
   /** App initializer: creates the one worker and starts run 1 with the defaults. Idempotent. */
   boot(): void {
-    if (this.worker === null) this.connect();
+    if (this.worker !== null) return;
+    this.pacer.start();
+    this.connect();
   }
 
   /**
@@ -83,6 +116,8 @@ export class ProducerStore {
   pause(): void {
     if (this.statusState() !== 'running') return;
     this.send({ type: 'pause', runId: this.runIdState() });
+    // Show everything received so far: a paused table must not lag behind a deferred repaint.
+    this.pacer.flush();
     this.statusState.set('paused');
     this.meter.clearWindow();
     this.statsState.update((s) => ({ ...s, updatesPerSec: 0 }));
@@ -137,6 +172,8 @@ export class ProducerStore {
     const runId = this.runIdState() + 1;
     const settings = this.settingsState();
     this.runIdState.set(runId);
+    // A deferred repaint belongs to the old run: it must never be shown.
+    this.pacer.drop();
     this.accumulators.set(createAccumulators(settings.instrumentCount));
     this.statsState.set(EMPTY_STATS);
     this.meter.reset();
@@ -169,14 +206,16 @@ export class ProducerStore {
   private onSnapshot(snapshot: Snapshot): void {
     if (!this.isCurrent(snapshot.runId) || snapshot.seq <= this.lastSeq) return;
     this.lastSeq = snapshot.seq;
-    this.accumulators.set(snapshot.instruments);
     const { batches, updates } = snapshot.stats;
     // A batch generated before Pause can land after it (same run, accepted): its totals count,
     // but it must not bring the measured rate back while paused.
     if (this.statusState() === 'paused') this.meter.sync(updates);
     const updatesPerSec =
       this.statusState() === 'paused' ? 0 : this.meter.record(this.clock.now(), updates);
-    this.statsState.set({ updatesPerSec, batches, updates });
+    this.pacer.offer({
+      instruments: snapshot.instruments,
+      stats: { updatesPerSec, batches, updates },
+    });
   }
 
   private isCurrent(runId: number): boolean {
