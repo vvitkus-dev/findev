@@ -75,4 +75,18 @@ describe('ThroughputMeter', () => {
     // Assert
     expect(rate).toBe(100);
   });
+
+  it('sync takes a new total without counting it', () => {
+    // Arrange
+    const meter = new ThroughputMeter();
+    meter.record(0, 100);
+    meter.clearWindow();
+    meter.sync(250);
+
+    // Act
+    const rate = meter.record(500, 300);
+
+    // Assert — only the 50 updates after the synced total
+    expect(rate).toBe(50);
+  });
 });

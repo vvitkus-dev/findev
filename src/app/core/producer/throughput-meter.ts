@@ -30,6 +30,14 @@ export class ThroughputMeter {
   }
 
   /**
+   * Takes a cumulative total without counting it (a batch that lands while paused): the
+   * window stays empty, and the next sample after resume counts only newer updates.
+   */
+  sync(totalUpdates: number): void {
+    this.lastTotal = Math.max(this.lastTotal, totalUpdates);
+  }
+
+  /**
    * Empties the window but keeps the running total (pause): the run's cumulative count
    * continues after resume, so only updates generated after resume are counted.
    */

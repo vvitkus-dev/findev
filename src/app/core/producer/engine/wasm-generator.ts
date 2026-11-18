@@ -107,7 +107,8 @@ export async function loadWasmGeneratorFactory(
 
 async function instantiateUrl(url: URL): Promise<WebAssembly.WebAssemblyInstantiatedSource> {
   const response = await fetch(url);
-  if (!response.ok) throw new Error(`failed to fetch ${url.href}: HTTP ${String(response.status)}`);
+  // No URL here: the engine prefixes "failed to load <url>:", so it is named once.
+  if (!response.ok) throw new Error(`HTTP ${String(response.status)}`);
   if (response.headers.get('content-type')?.startsWith('application/wasm') === true) {
     return WebAssembly.instantiateStreaming(response, {});
   }

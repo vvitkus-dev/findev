@@ -120,7 +120,10 @@ export class ProducerStore {
     this.startRun();
   }
 
-  /** Ends the current worker. `graceful` lets it free the Wasm generator first. */
+  /**
+   * Ends the current worker. `graceful` also posts `dispose`, best-effort only: `terminate()`
+   * follows at once and usually wins, but it frees the worker's Wasm memory either way.
+   */
   private disconnect(graceful: boolean): void {
     const worker = this.worker;
     if (worker === null) return;
@@ -168,7 +171,11 @@ export class ProducerStore {
     this.lastSeq = snapshot.seq;
     this.accumulators.set(snapshot.instruments);
     const { batches, updates } = snapshot.stats;
-    const updatesPerSec = this.meter.record(this.clock.now(), updates);
+    // A batch generated before Pause can land after it (same run, accepted): its totals count,
+    // but it must not bring the measured rate back while paused.
+    if (this.statusState() === 'paused') this.meter.sync(updates);
+    const updatesPerSec =
+      this.statusState() === 'paused' ? 0 : this.meter.record(this.clock.now(), updates);
     this.statsState.set({ updatesPerSec, batches, updates });
   }
 
