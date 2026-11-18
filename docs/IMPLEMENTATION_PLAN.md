@@ -663,6 +663,22 @@ Behaviour:
 > - **Spec (10 tests):** time order, ties, not-yet-due, cancel, self-rescheduling ticks at 0/500/1000/1500, `elapse`, a negative delay treated as 0, the runaway guard, and the real implementations under Vitest fake timers (no sleeping).
 > - **Side fix:** `wasm-tests/tsconfig.json` now includes only `wasm-tests/**`; `tsc` follows imports. Before, it compiled all of `engine/` with Node types, which would have forced a cast on `setTimeout`.
 
+> **3.2–3.6 status (2026-11-18): done (one commit, because the engine is a single cohesive class).**
+>
+> - **`protocol.model.ts`:** `ToWorker` (init, start with settings and seed `[lo,hi]`, pause, resume, dispose) and `FromWorker` (ready, snapshot with `runId`, `seq`, instruments and stats {batches, updates, lastBatchMs}, status, error {runId|null, phase, message}).
+> - **`producer-engine.ts`:**
+>   - Commands run through a serial promise queue.
+>   - The factory loads once. `start` stops the old run (cancels its timer, disposes its generator), validates the settings again, and schedules the first batch at 0 ms.
+>   - Each tick generates, then calls `applyBatch`, posts a copied snapshot, and schedules the next one after `max(0, interval − elapsed)`.
+>   - Resume schedules the next batch a full interval later.
+>   - Any exception stops the run and posts `error{phase:'runtime'}`.
+>   - `dispose` stops the run and silences everything after it.
+> - **Test helpers:** `testing/fake-generator.ts` counts create, generate and dispose calls, and throws if used after dispose, like the real adapter. `testing/engine-harness.ts` wires the engine to `ManualScheduler`.
+> - **Specs (23 tests):**
+>   - `producer-engine.spec.ts`: cadence 0/500/1000/1500; batch size; pause, plus no catch-up (+499 → 0 batches, +500 → 1); totals preserved across pause; a single batch chain after pause and resume; run isolation; dispose.
+>   - `producer-engine-ordering.spec.ts`: start before ready; pause before load; init and runtime errors; invalid settings; a slow 700 ms batch gives batch starts at 0/700/1400/1900/2400.
+> - **Mutation check:** 10 injected engine bugs, all caught. They covered slow-batch compensation, resume catch-up, missing dispose, a leaked pause timer, a synchronous first batch, `seq` off by one, shared accumulators, dispose not stopping, reload on every init, and an error that doesn't stop the run. The leaked pause timer first survived and needed the new single-chain test.
+
 **Phase 3 gate:** `npx ng test --watch=false` exit 0; total test wall time < 30 s (`time npx ng test --watch=false`) — proves no real-time waits.
 
 ---
