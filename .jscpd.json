@@ -1,0 +1,11 @@
+{
+  "threshold": 3,
+  "minTokens": 50,
+  "minLines": 6,
+  "format": ["typescript", "markup", "scss"],
+  "path": ["src"],
+  "ignore": ["**/*.spec.ts", "**/node_modules/**", "**/__lint_probes__/**"],
+  "reporters": ["console", "html", "json"],
+  "output": "reports/jscpd",
+  "failOnEmpty": true
+}
