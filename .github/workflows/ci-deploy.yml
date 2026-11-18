@@ -32,6 +32,21 @@ jobs:
       # format, lint, types, duplication, dead code, audit, dependency age
       - run: npm run static
 
+  pr-size:
+    name: PR size
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      # Over 600 changed lines (lockfile, screenshots and vendored skills excluded) → split the PR.
+      - run: node scripts/pr-size.mjs "origin/${{ github.base_ref }}"
+
   self-test:
     name: Gate self-test (probes)
     runs-on: ubuntu-24.04

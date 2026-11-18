@@ -374,6 +374,45 @@ const pyramidProbe = (name, counts, expectCode, expectText) => ({
   },
 });
 
+/** pr-size in a throwaway git repo: one base commit, then `files` ({path: lineCount}) on HEAD. */
+const prSizeProbe = (name, files, expectCode, expectText) => ({
+  name,
+  run: () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pr-size-probe-'));
+    const git = (...args) =>
+      spawnSync(
+        'git',
+        ['-c', 'user.name=probe', '-c', 'user.email=probe@example.invalid', ...args],
+        {
+          cwd: dir,
+          encoding: 'utf8',
+        },
+      );
+    try {
+      git('init', '-q', '-b', 'main');
+      writeFileSync(join(dir, 'README.md'), 'base\n');
+      git('add', '.');
+      git('commit', '-q', '-m', 'base');
+      git('checkout', '-q', '-b', 'feature');
+      for (const [path, lines] of Object.entries(files)) {
+        mkdirSync(dirname(join(dir, path)), { recursive: true });
+        writeFileSync(join(dir, path), 'x\n'.repeat(lines));
+      }
+      git('add', '.');
+      git('commit', '-q', '-m', 'change');
+      const r = spawnSync('node', [join(process.cwd(), 'scripts/pr-size.mjs'), 'main'], {
+        cwd: dir,
+        encoding: 'utf8',
+      });
+      const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+      const ok = r.status === expectCode && out.includes(expectText);
+      return { ok, detail: `exit=${String(r.status)}${ok ? '' : `\n${out}`}` };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+});
+
 const PROBES = [
   // Q0.7 — duplication
   {
@@ -616,6 +655,19 @@ pub fn deep(v: &[u32]) -> u32 {
     { unit: 90, integration: 5, e2e: 5 },
     0,
     'Pyramid OK.',
+  ),
+  // Q4.3 — PR size
+  prSizeProbe('pr-size fails on a 601-line PR', { 'src/big.ts': 601 }, 1, 'split the PR'),
+  prSizeProbe(
+    'ALLOWED: pr-size ignores the lockfile, screenshots and vendored skills',
+    {
+      'src/small.ts': 100,
+      'package-lock.json': 5000,
+      'e2e/__screenshots__/a.txt': 900,
+      '.claude/skills/x/SKILL.md': 900,
+    },
+    0,
+    '100 changed lines',
   ),
 ];
 
