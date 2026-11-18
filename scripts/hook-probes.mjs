@@ -80,6 +80,43 @@ const PROBES = [
       };
     },
   },
+  // Q1.3 — pre-push (verify:fast): a lint-clean but failing unit test must not reach the remote
+  {
+    name: 'pre-push blocks a failing unit test',
+    run: () => {
+      const spec = [
+        "describe('hook probe', () => {",
+        "  it('fails on purpose', () => {",
+        '    // Act',
+        '    const value = [1].length;',
+        '',
+        '    // Assert',
+        '    expect(value).toBe(2);',
+        '  });',
+        '});',
+        '',
+      ].join('\n');
+      const remote = mkdtempSync(join(tmpdir(), 'hook-probes-remote-'));
+      try {
+        spawnSync('git', ['init', '--bare', '--quiet', remote]);
+        writeFileSync(join(wt, 'src/app/__hook_probe.spec.ts'), spec);
+        git('add', 'src/app/__hook_probe.spec.ts');
+        const c = git('commit', '-m', 'test: failing probe');
+        if (c.code !== 0) return { ok: false, detail: `setup commit failed:\n${c.out}` };
+        const r = git('push', remote, 'HEAD:refs/heads/probe');
+        const landed =
+          spawnSync('git', ['--git-dir', remote, 'rev-parse', '--verify', '-q', 'probe']).status ===
+          0;
+        git('reset', '--hard', 'HEAD~1');
+        return {
+          ok: r.code !== 0 && !landed && /fails on purpose/.test(r.out),
+          detail: `pushed=${landed}`,
+        };
+      } finally {
+        rmSync(remote, { recursive: true, force: true });
+      }
+    },
+  },
 ];
 
 let failed = 0;
