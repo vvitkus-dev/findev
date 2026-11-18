@@ -105,6 +105,7 @@ npm run test:unit           # Angular unit + integration tests (Vitest, once)
 npm run test:rust           # rustfmt --check, clippy (pedantic, -D warnings), cargo test
 npm run test:wasm           # Node test suite on the real compiled producer.wasm (run wasm:build first)
 npm run e2e                 # Playwright (Chromium) on the Pages build served under /findev/
+npm run e2e:update-snapshots  # re-render visual baselines in the pinned Playwright image (Docker)
 npm run verify              # every gate: static checks, gate self-test, Rust, Wasm, unit tests, build, E2E
 ```
 
@@ -130,6 +131,12 @@ Every threshold is a hard failure, and deploy is blocked unless all gates are gr
   pause/resume, settings validation and apply, navigation, the Wasm-404 banner with Retry, and axe
   (no serious or critical WCAG 2 A/AA violations). In CI it runs in the pinned Playwright image
   on the exact bundle that deploys.
+- **Visual snapshots (`@visual`):** Settings and the paused Dashboard, with live values masked,
+  compared pixel for pixel (≤ 100 differing pixels; a heading colour change alters ~480). Baselines in
+  `e2e/__screenshots__` are rendered only in the pinned Linux Playwright image, so these specs run
+  in CI and `npm run e2e:docker`, and are skipped by a local `npm run e2e` on macOS or Windows. After
+  an intended UI change: `npm run build:pages && npm run e2e:update-snapshots`, then review and
+  commit the PNGs.
 
 ## Known limits
 

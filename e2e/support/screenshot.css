@@ -1,0 +1,20 @@
+/* Applied only while taking visual snapshots (playwright.config.ts → toHaveScreenshot.stylePath).
+   The footer build id is "dev" locally and a 7-character SHA in CI: hide it in a fixed-width box
+   so the rest of the footer never shifts between the two. */
+footer code {
+  display: inline-block;
+  width: 7ch;
+  visibility: hidden;
+}
+
+/* Masked live values must not move anything: fixed column widths (no auto layout driven by
+   digit counts), and a fixed-width box for the status bar counters (the mask covers the box). */
+app-metrics-table table {
+  table-layout: fixed;
+}
+app-producer-status .num {
+  display: inline-block;
+  width: 16rem;
+  overflow: hidden;
+  white-space: nowrap;
+}

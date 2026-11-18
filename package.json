@@ -36,7 +36,9 @@
     "test:ci": "ng test --watch=false --configuration ci",
     "cov:rust": "node scripts/cargo.mjs llvm-cov --summary-only --fail-under-lines 85 --fail-under-functions 85 && node -e \"require('node:fs').mkdirSync('reports', {recursive: true})\" && node scripts/cargo.mjs llvm-cov report --lcov --output-path reports/rust.lcov",
     "e2e": "npm run wasm:build && npm run build:pages && playwright test",
-    "e2e:smoke": "playwright test --grep @smoke"
+    "e2e:smoke": "playwright test --grep @smoke",
+    "e2e:docker": "node scripts/e2e-docker.mjs",
+    "e2e:update-snapshots": "node scripts/e2e-docker.mjs --update-snapshots --grep @visual"
   },
   "private": true,
   "packageManager": "npm@11.19.0",

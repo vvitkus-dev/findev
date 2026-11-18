@@ -259,6 +259,14 @@ Each step lists **work** and a **deterministic control check** (command → exac
 >   - Locally, `--repeat-each 10` and `--repeat-each 5 --workers 12` gave 165/165 passes.
 >   - CI run 44358492840: every job green, e2e 14/14 with no retries, live smoke 4/4.
 
+> **Q3.4 status (2026-11-18): done, with a tighter threshold than planned.**
+>
+> - **Specs:** `visual.e2e.ts` (`@visual`) covers Settings (full page) and the paused Dashboard. Table cells and status-bar counters are masked through role/text locators.
+> - **Screenshot-only stylesheet:** `e2e/support/screenshot.css` keeps masked values from moving anything (fixed table layout, a fixed-width counter box, a hidden fixed-width build id: `dev` locally, the SHA in CI).
+> - **Where it runs:** baselines are rendered by `scripts/e2e-docker.mjs` in the CI image (tag and digest read from the workflow, `--platform=linux/amd64` like the runner). The specs run on Linux only.
+> - **Threshold:** the planned `maxDiffPixelRatio: 0.01` let the control check pass, since a red `h1` changes only 483 px (0.05 %). The gate is now `maxDiffPixels: 100`; 36 clean runs in the image showed 0 differing pixels.
+> - **Control check:** red heading ⇒ both specs fail, and the diff image marks only the heading; revert ⇒ pass, with both a SHA build and a `dev` build.
+
 **Q3 gate:** `npm run e2e` exit 0 locally and in CI; flaky count = 0 over 3 consecutive CI runs.
 
 ### Phase Q4 — CI integration, pyramid & PR hygiene (merge into Implementation Phase 8)
