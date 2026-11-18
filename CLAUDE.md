@@ -28,7 +28,7 @@ npx ng test --watch=false --filter '^Metrics'                                   
 
 npm run verify:fast          # static + unit tests (pre-push hook runs this)
 npm run verify               # full gate: static + quality self-test + unit tests + build
-npm run static               # format:check, lint, lint:types, dup (jscpd), deadcode (knip), audit
+npm run static               # format:check, lint, lint:types, dup (jscpd), deadcode (knip), audit, deps:age
 npm run lint                 # ng lint --max-warnings 0 (TS + templates)
 npm run format               # prettier --write .
 npm run quality:self-test    # proves the gates still fire: lint/quality/hook probes + AAA RuleTester
@@ -103,5 +103,7 @@ The architecture rules are lint rules, so `eslint-disable` can't switch them off
 - **Never weaken a gate to make code pass.** Don't lower thresholds, and every `eslint-disable` needs a `-- reason`. Fix the code or split it.
 
 ## Conventions
+
+- **Dependencies:** every direct dependency is pinned to an exact version published **at least 14 days ago** (`.npmrc` sets `save-exact`). `npm run deps:age` fails otherwise and suggests the version to use. To add a package: `npm install <pkg>@<version> --before=<date 14 days ago>`. This keeps its transitive dependencies old enough too.
 
 - Commit author email is `valery.vitkus@gmail.com`, set in the global git config.

@@ -103,6 +103,38 @@ const wasmVerifyProbe = (name, expect, mutate) => ({
   },
 });
 
+/** Runs deps-age on a throwaway package.json (+ optional lockfile) with a pinned "now". */
+function depsAge(devDependencies, lockVersions, now) {
+  const dir = mkdtempSync(join(tmpdir(), 'deps-probe-'));
+  try {
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ devDependencies }));
+    if (lockVersions) {
+      const packages = Object.fromEntries(
+        Object.entries(lockVersions).map(([n, version]) => [`node_modules/${n}`, { version }]),
+      );
+      writeFileSync(join(dir, 'package-lock.json'), JSON.stringify({ packages }));
+    }
+    const r = spawnSync('node', ['scripts/deps-age.mjs', join(dir, 'package.json')], {
+      encoding: 'utf8',
+      env: { ...process.env, ...(now ? { DEPS_AGE_NOW: now } : {}) },
+    });
+    return { code: r.status ?? -1, out: `${r.stdout ?? ''}${r.stderr ?? ''}`.trim() };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const depsProbe = (name, expectCode, expectText, args) => ({
+  name,
+  run: () => {
+    const r = depsAge(...args);
+    return {
+      ok: r.code === expectCode && r.out.includes(expectText),
+      detail: `exit=${r.code} ${r.out}`,
+    };
+  },
+});
+
 const CLIPPY = ['clippy', '--all-targets', '--message-format', 'json', '--', '-D', 'warnings'];
 /** Lint codes (e.g. `clippy::unwrap_used`) reported in cargo's JSON message stream. */
 const lintCodes = (out) =>
@@ -296,6 +328,26 @@ pub fn deep(v: &[u32]) -> u32 {
       'trade_qty: rng.below(MAX_TRADE_QTY),',
     ),
   ),
+  // deps:age — supply-chain gate (vitest 5.1.0 was published 2026-11-02).
+  depsProbe('deps:age rejects a version range', 1, 'is not an exact version', [
+    { vitest: '^5.0.0' },
+  ]),
+  depsProbe('deps:age rejects a release younger than 14 days', 1, 'published 3.', [
+    { vitest: '5.1.0' },
+    null,
+    '2026-11-05T16:00:00Z',
+  ]),
+  depsProbe(
+    'deps:age rejects a lockfile that drifted from the pin',
+    1,
+    'package-lock resolves 5.1.1',
+    [{ vitest: '5.1.0' }, { vitest: '5.1.1' }],
+  ),
+  depsProbe('ALLOWED: deps:age accepts an old exact pin matching the lockfile', 0, 'OK deps:age', [
+    { vitest: '5.1.0' },
+    { vitest: '5.1.0' },
+    '2026-11-17T00:00:00Z',
+  ]),
 ];
 
 let failed = 0;

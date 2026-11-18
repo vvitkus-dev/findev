@@ -193,6 +193,16 @@ Each step lists **work** and a **deterministic control check** (command → exac
 > - **Probes:** 7 Rust probes in `quality-probes.mjs` run on a temporary copy of the crate and read the exact lint codes from cargo's JSON output.
 > - **Hooks:** Rust runs in lint-staged and in `verify:fast`/`verify`.
 
+> **Supply-chain gate (added 2026-11-18, during step 2.1):**
+>
+> - **What triggered it:** installing `@vitest/coverage-v8` showed the scaffold's `^5.0.0` range had resolved Vitest to **5.1.1, published that same morning**. 15 of the 28 direct dependencies were under 14 days old, including 3 pins I had chosen myself.
+> - **Fix:**
+>   - every direct dependency is pinned exactly to a release at least 14 days old (Angular 22.2.4/22.2.5, angular-eslint 22.6.0, eslint 10.14.0, jscpd 5.4.2, knip 6.44.1, prettier 3.9.10, vitest 5.1.0);
+>   - the lockfile was re-resolved with `npm install --before=2026-11-04`, so **transitive** dependencies are at least 14 days old as well;
+>   - `.npmrc` sets `save-exact=true`.
+> - **Gate:** `npm run deps:age` (in `static`) fails on a range, a release under 14 days old, or a lockfile that drifted from the pin. Its failure message names the version to use.
+> - **Probes:** 4 in `quality-probes.mjs`. `DEPS_AGE_NOW` pins the date, so they give the same result forever.
+
 **Q2 gate:** `npm run test:ci && npm run cov:rust && npm run test:wasm` exit 0.
 
 ### Phase Q3 — E2E, accessibility, visual (attach after Implementation Phase 7)
