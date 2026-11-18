@@ -127,6 +127,9 @@ Every threshold is a hard failure, and deploy is blocked unless all gates are gr
 - **`npm run quality:self-test`:** proves each gate still fires by feeding it a deliberately bad
   input (lint, coverage, duplication, Rust, Wasm ABI, dependency age, git hooks, deploy smoke).
 - **`npm run test:rust:mutants`:** injected Rust bugs must each make a test fail.
+- **`npm run test:mutation`:** Stryker mutates `metrics.ts`, `producer-settings.ts` and
+  `market-format.ts` and fails below an 80 % mutation score (currently 100 %; report in
+  `reports/mutation/`). Equivalent mutants are marked in the source with a stated reason.
 - **`npm run test:pyramid`:** counts tests per layer (after `test:ci`) and fails on an
   "ice-cream cone": unit ≥ 60 %, E2E ≤ 10 %, at least 3 integration tests.
 - **Pull requests:** the `pr-size` job fails above 600 changed lines (excluding

@@ -669,6 +669,36 @@ pub fn deep(v: &[u32]) -> u32 {
     0,
     '100 changed lines',
   ),
+  // Q5.1 — mutation testing: with only the formatter specs, every metrics mutant survives
+  {
+    name: 'stryker fails when the mutation score drops below 80 %',
+    run: () =>
+      withFiles(
+        {
+          'stryker/__probe.vitest.config.mts': `import { defineConfig } from 'vitest/config';
+export default defineConfig({
+  test: { globals: true, environment: 'node', include: ['src/app/shared/format/market-format.spec.ts'] },
+});
+`,
+          '__probe.stryker.config.mjs': `import base from './stryker.config.mjs';
+export default {
+  ...base,
+  vitest: { configFile: 'stryker/__probe.vitest.config.mts' },
+  reporters: ['clear-text'],
+  tempDirName: '.stryker-tmp-probe',
+};
+`,
+        },
+        () => {
+          const r = run('npx', ['stryker', 'run', '__probe.stryker.config.mjs']);
+          rmSync('.stryker-tmp-probe', { recursive: true, force: true });
+          return {
+            ok: r.code !== 0 && r.out.includes('under breaking threshold 80'),
+            detail: `exit=${r.code}${r.code !== 0 ? '' : `\n${r.out.slice(-2000)}`}`,
+          };
+        },
+      ),
+  },
 ];
 
 // Optional filter: `node scripts/quality-probes.mjs smoke-deploy` runs only matching probes.

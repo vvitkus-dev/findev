@@ -288,6 +288,15 @@ Each step lists **work** and a **deterministic control check** (command → exac
 | Q5.1 | **Mutation testing**: StrykerJS + `@stryker-mutator/vitest-runner` on `core/producer/{metrics,producer-settings}.ts` and `shared/format/market-format.ts` via a Node-env Vitest project. `thresholds: {high: 90, low: 80, break: 80}`. Weekly/scheduled CI job (too slow for every push). | `npx stryker run` mutation score ≥ 80 %              |
 | Q5.2 | **SonarCloud** (free for public repos) fed with lcov + ESLint JSON: single dashboard for complexity, duplication, coverage on new code. Local tools remain the source of truth (no external dependency for gating).                                                                       | Quality Gate "Passed" badge in README                |
 
+> **Q5.1 status (2026-11-18): done. It runs on every push, not weekly: the whole run takes about 5 s.**
+>
+> - **Setup:** StrykerJS 10.1.1 with the Vitest runner, on a Node-environment Vitest project (`stryker/vitest.config.mts`) holding the three framework-free specs. Thresholds 90/80/break 80.
+> - **First run:** 89.94 %, with 17 survivors.
+>   - **Real gaps, now tested:** the 50-instrument upper bound, error messages, half-filled quotes and books in `deriveMetrics`, and `formatVolume` rounding.
+>   - **Equivalent mutants:** marked with `// Stryker disable next-line <mutator>: <reason>`. They are `typeof`/`=== null` guards that only narrow types (`Number.isInteger`/`Number.isFinite` already reject those values), and `base + FIELD.instrument` where the field is 0.
+> - **Now:** 100 % (154 killed, 1 timeout, 4 compile-time `Intl` errors that count as detected).
+> - **Wiring:** in `verify` and the CI `test` job, which uploads the HTML report. A quality probe proves that a score below 80 % fails.
+
 ---
 
 ## 5. Thresholds summary (single source of truth)

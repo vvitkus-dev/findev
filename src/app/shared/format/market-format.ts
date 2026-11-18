@@ -10,6 +10,7 @@ const INTEGER = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
 
 /** Integer (or fractional, e.g. VWAP) cents → `$101.50`. */
 export function formatCents(cents: number | null): string {
+  // Stryker disable next-line ConditionalExpression: Number.isFinite(null) is false; the null check narrows for TS
   return cents === null || !Number.isFinite(cents) ? EMPTY : USD.format(cents / 100);
 }
 
@@ -24,5 +25,6 @@ export function formatImbalance(value: number | null): string {
 
 /** Cumulative volume → grouped integer, e.g. `1,234,567`. */
 export function formatVolume(volume: number | null): string {
+  // Stryker disable next-line ConditionalExpression: Number.isFinite(null) is false; the null check narrows for TS
   return volume === null || !Number.isFinite(volume) ? EMPTY : INTEGER.format(volume);
 }

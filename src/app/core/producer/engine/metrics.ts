@@ -36,6 +36,7 @@ export function applyBatch(acc: InstrumentAccumulatorDto[], words: Uint32Array, 
     );
   }
   for (let base = 0; base < n * RECORD_WORDS; base += RECORD_WORDS) {
+    // Stryker disable next-line ArithmeticOperator: FIELD.instrument is 0, so base ± 0 is the same word
     const index = word(words, base + FIELD.instrument);
     const a = acc[index];
     if (a === undefined) throw new RangeError(`instrument ${String(index)} out of range`);

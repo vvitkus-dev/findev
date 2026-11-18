@@ -96,6 +96,14 @@ jobs:
       - run: npm run test:ci
       # Unit ≥ 60 %, E2E ≤ 10 %, ≥ 3 integration tests; the table goes to the job summary.
       - run: npm run test:pyramid
+      # Stryker on metrics, settings and formatters: mutation score ≥ 80 % (≈ 5 s).
+      - run: npm run test:mutation
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mutation-report
+          path: reports/mutation
+          retention-days: 7
       - name: Production build for GitHub Pages
         env:
           REPO: ${{ github.event.repository.name }}

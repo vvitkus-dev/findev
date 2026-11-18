@@ -43,6 +43,7 @@ describe('market-format', () => {
     [0, '0'],
     [999, '999'],
     [1_234_567, '1,234,567'],
+    [1_234.6, '1,235'],
     [null, '—'],
     [Number.POSITIVE_INFINITY, '—'],
   ])('formatVolume(%s) → %s', (volume, expected) => {

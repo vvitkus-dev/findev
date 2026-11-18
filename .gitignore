@@ -50,3 +50,6 @@ Thumbs.db
 /public/wasm/
 /wasm/producer/target/
 !/e2e/__screenshots__/
+
+# Mutation testing sandbox (Stryker)
+/.stryker-tmp/

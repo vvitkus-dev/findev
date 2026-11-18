@@ -185,6 +185,7 @@ describe('Metrics', () => {
 
     // Assert
     expect(apply).toThrow(RangeError);
+    expect(apply).toThrow('instrument 2 out of range');
   });
 
   it('rejects n larger than the buffer holds', () => {
@@ -199,6 +200,7 @@ describe('Metrics', () => {
 
     // Assert
     expect(apply).toThrow(RangeError);
+    expect(apply).toThrow('batch of 2 records exceeds buffer of 7 words');
   });
 
   it.each([0, 51, 1.5])('rejects an instrument count of %d', (count) => {
@@ -207,5 +209,44 @@ describe('Metrics', () => {
 
     // Assert
     expect(create).toThrow(RangeError);
+    expect(create).toThrow('instrumentCount must be 1..50');
+  });
+
+  it('accepts the maximum of 50 instruments', () => {
+    // Act
+    const acc = createAccumulators(50);
+
+    // Assert
+    expect(acc).toHaveLength(50);
+  });
+
+  // deriveMetrics takes any DTO (snapshots cross a thread boundary), so one missing side of the
+  // quote or the book must give null, never arithmetic on null.
+  it.each([
+    { bidCents: null, askCents: 10_002 },
+    { bidCents: 10_000, askCents: null },
+  ])('spread is null for a half-filled quote %o', (quote) => {
+    // Arrange
+    const acc = { ...createAccumulators(1)[0], bidQty: 600, askQty: 400, ...quote };
+
+    // Act
+    const metrics = deriveMetrics(acc as InstrumentAccumulatorDto);
+
+    // Assert
+    expect(metrics.spreadCents).toBeNull();
+  });
+
+  it.each([
+    { bidQty: null, askQty: 400 },
+    { bidQty: 600, askQty: null },
+  ])('imbalance is null for a half-filled book %o', (book) => {
+    // Arrange
+    const acc = { ...createAccumulators(1)[0], bidCents: 10_000, askCents: 10_002, ...book };
+
+    // Act
+    const metrics = deriveMetrics(acc as InstrumentAccumulatorDto);
+
+    // Assert
+    expect(metrics.imbalance).toBeNull();
   });
 });

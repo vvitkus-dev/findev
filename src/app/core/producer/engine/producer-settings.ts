@@ -28,6 +28,7 @@ const FIELDS = Object.keys(SETTINGS_LIMITS) as readonly SettingsField[];
 /** Error message for one field value, or `null` when it is a valid integer within its limit. */
 export function settingsFieldError(field: SettingsField, value: unknown): string | null {
   const { min, max } = SETTINGS_LIMITS[field];
+  // Stryker disable next-line ConditionalExpression: Number.isInteger already rejects non-numbers; typeof narrows for TS
   if (typeof value !== 'number' || !Number.isInteger(value)) {
     return 'Must be a whole number';
   }
@@ -37,6 +38,7 @@ export function settingsFieldError(field: SettingsField, value: unknown): string
 /** Validates untrusted input (e.g. a worker message) into `ProducerSettings`. */
 export function validateSettings(input: unknown): SettingsValidation {
   const record: Partial<Record<SettingsField, unknown>> =
+    // Stryker disable next-line ConditionalExpression: a primitive input has no fields either, so every field is rejected
     typeof input === 'object' && input !== null ? input : {};
   const errors: SettingsError[] = [];
   for (const field of FIELDS) {
