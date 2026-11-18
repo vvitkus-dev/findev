@@ -172,6 +172,12 @@ const PROBES = [
       '@typescript-eslint/no-explicit-any',
     ],
   },
+  {
+    name: 'empty undecorated class still banned',
+    file: P + 'empty-class.ts',
+    code: 'export class Nothing {}\n',
+    expect: ['@typescript-eslint/no-extraneous-class'],
+  },
   // Negative probes — legitimate code must stay clean (no false positives)
   {
     name: 'ALLOWED: feature imports its own subfolder and core',
@@ -179,6 +185,13 @@ const PROBES = [
     code: "import '../models/row';\nimport '../../../core/producer/producer-store';\nimport '../dashboard';\n",
     expect: [],
     forbid: ['no-restricted-imports'],
+  },
+  {
+    name: 'ALLOWED: empty decorated Angular component class',
+    file: P + 'empty-component.ts',
+    code: "import { Component } from '@angular/core';\n@Component({ selector: 'app-x', template: '' })\nexport class X {}\n",
+    expect: [],
+    forbid: ['@typescript-eslint/no-extraneous-class'],
   },
   {
     name: 'ALLOWED: Signal Forms import',

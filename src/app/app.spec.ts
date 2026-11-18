@@ -1,22 +1,16 @@
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { App } from './app';
 
-describe('App', () => {
-  beforeEach(async () => {
-    await TestBed.configureTestingModule({
+describe('App shell', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({
       imports: [App],
-    }).compileComponents();
+      providers: [provideRouter([])],
+    });
   });
 
-  it('should create the app', () => {
-    // Act
-    const fixture = TestBed.createComponent(App);
-
-    // Assert
-    expect(fixture.componentInstance).toBeTruthy();
-  });
-
-  it('should render title', async () => {
+  it('renders the application heading', async () => {
     // Arrange
     const fixture = TestBed.createComponent(App);
 
@@ -24,7 +18,19 @@ describe('App', () => {
     await fixture.whenStable();
 
     // Assert
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('Hello, findev');
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('h1')?.textContent.trim()).toBe('Realtime Market Dashboard');
+  });
+
+  it('hosts routed pages in a router outlet inside main', async () => {
+    // Arrange
+    const fixture = TestBed.createComponent(App);
+
+    // Act
+    await fixture.whenStable();
+
+    // Assert
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('main router-outlet')).not.toBeNull();
   });
 });

@@ -98,6 +98,8 @@ module.exports = defineConfig([
       '@angular-eslint/no-uncalled-signals': 'error',
       // Type safety
       '@typescript-eslint/no-explicit-any': 'error',
+      // Angular components/directives may legitimately have empty decorated classes.
+      '@typescript-eslint/no-extraneous-class': ['error', { allowWithDecorator: true }],
       '@typescript-eslint/no-non-null-assertion': 'error',
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/explicit-module-boundary-types': 'error',
