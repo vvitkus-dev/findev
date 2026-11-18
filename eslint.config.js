@@ -62,7 +62,12 @@ const BAN_MANUAL_CD = {
   selector: 'CallExpression[callee.property.name=/^(detectChanges|markForCheck)$/]',
   message: 'Zoneless tests: Act → await fixture.whenStable() → Assert (angular-developer skill).',
 };
-const restrictedSyntax = (...bans) => ['error', BAN_INJECTABLE, ...bans];
+const BAN_NEW_WORKER = {
+  selector: "NewExpression[callee.name='Worker']",
+  message:
+    'One worker per app: create it only via the WORKER_FACTORY default in core/producer/producer-tokens.ts.',
+};
+const restrictedSyntax = (...bans) => ['error', BAN_INJECTABLE, BAN_NEW_WORKER, ...bans];
 
 module.exports = defineConfig([
   {
@@ -122,6 +127,11 @@ module.exports = defineConfig([
       'no-restricted-imports': restrictedImports(NO_FEATURES),
       'no-restricted-syntax': restrictedSyntax(BAN_MATH_RANDOM),
     },
+  },
+  {
+    // The single allowed `new Worker` (WORKER_FACTORY default); every other ban still applies.
+    files: ['src/app/core/producer/producer-tokens.ts'],
+    rules: { 'no-restricted-syntax': ['error', BAN_INJECTABLE, BAN_MATH_RANDOM] },
   },
   {
     files: ['src/app/core/producer/engine/**/*.ts'],

@@ -106,6 +106,18 @@ const PROBES = [
     expect: ['no-restricted-syntax'],
   },
   {
+    name: 'new Worker banned outside WORKER_FACTORY (one worker per app)',
+    file: 'features/dashboard/__probe_worker.ts',
+    code: "export const w = new Worker(new URL('./x.worker', import.meta.url));\n",
+    expect: ['no-restricted-syntax'],
+  },
+  {
+    name: 'new Worker banned in core outside producer-tokens.ts',
+    file: 'core/producer/__probe_worker.ts',
+    code: "export const w = new Worker('x.js');\n",
+    expect: ['no-restricted-syntax'],
+  },
+  {
     name: '@Injectable banned (use @Service)',
     file: P + 'injectable.ts',
     code: "import { Injectable } from '@angular/core';\n@Injectable({ providedIn: 'root' })\nexport class Svc {}\n",
