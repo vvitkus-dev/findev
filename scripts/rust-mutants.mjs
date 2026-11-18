@@ -101,6 +101,49 @@ const MUTANTS = [
     from: 'let buy = rng.unit_f64() < buy_probability(self.bid_qty, self.ask_qty);',
     to: 'let buy = rng.unit_f64() < 2.0;',
   },
+  // Step 1.4 — producer.rs
+  {
+    name: 'output buffer not cleared between batches',
+    file: 'src/producer.rs',
+    from: '        self.buf.clear();\n',
+    to: '',
+  },
+  {
+    name: 'last instrument never selected',
+    file: 'src/producer.rs',
+    from: 'let index = self.rng.below(self.instrument_count);',
+    to: 'let index = self.rng.below(self.instrument_count - 1);',
+  },
+  {
+    name: 'records tagged with the wrong instrument',
+    file: 'src/producer.rs',
+    from: 'let update = state.step(&mut self.rng, index);',
+    to: 'let update = state.step(&mut self.rng, 0);',
+  },
+  {
+    name: 'producer ignores its seed',
+    file: 'src/producer.rs',
+    from: 'let mut rng = Rng::from_seed(seed);',
+    to: 'let mut rng = Rng::from_seed(0);',
+  },
+  {
+    name: 'instrument state rebuilt on every update',
+    file: 'src/producer.rs',
+    from: 'let state = self.instruments.get_mut(index as usize)?;',
+    to: 'let state = &mut InstrumentState::new(&mut self.rng.clone());',
+  },
+  {
+    name: 'batch-size upper bound off by one',
+    file: 'src/producer.rs',
+    from: 'if !(1..=MAX_BATCH).contains(&n) {',
+    to: 'if !(1..MAX_BATCH).contains(&n) {',
+  },
+  {
+    name: 'ABI word order swaps bid and ask',
+    file: 'src/model.rs',
+    from: '            self.bid_cents,\n            self.ask_cents,',
+    to: '            self.ask_cents,\n            self.bid_cents,',
+  },
 ];
 
 const env = {

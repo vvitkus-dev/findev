@@ -24,6 +24,9 @@ const BOOK_STEP: u32 = 50;
 /// Trade quantities are `1..=MAX_TRADE_QTY`.
 pub const MAX_TRADE_QTY: u32 = 100;
 
+/// Number of `u32` words per [`Update`] record in the ABI buffer.
+pub const RECORD_WORDS: usize = 7;
+
 /// One market update: a trade plus the current quote and book. `#[repr(C)]` with seven
 /// `u32` fields — this is the record layout JavaScript reads from Wasm memory.
 #[repr(C)]
@@ -43,6 +46,23 @@ pub struct Update {
     pub bid_qty: u32,
     /// Quantity available at the ask.
     pub ask_qty: u32,
+}
+
+impl Update {
+    /// The record as ABI words, in field order:
+    /// `[instrument, price, trade_qty, bid, ask, bid_qty, ask_qty]`.
+    #[must_use]
+    pub const fn words(&self) -> [u32; RECORD_WORDS] {
+        [
+            self.instrument,
+            self.price_cents,
+            self.trade_qty,
+            self.bid_cents,
+            self.ask_cents,
+            self.bid_qty,
+            self.ask_qty,
+        ]
+    }
 }
 
 /// Random walk of `value` by up to `±max_step`, clamped to `[lo, hi]`.
@@ -309,12 +329,32 @@ mod tests {
     }
 
     #[test]
+    fn words_follow_the_abi_field_order() {
+        // Arrange
+        let u = Update {
+            instrument: 1,
+            price_cents: 2,
+            trade_qty: 3,
+            bid_cents: 4,
+            ask_cents: 5,
+            bid_qty: 6,
+            ask_qty: 7,
+        };
+
+        // Act
+        let words = u.words();
+
+        // Assert
+        assert_eq!(words, [1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    #[test]
     fn update_record_is_seven_u32_words() {
         // Act
         let size = std::mem::size_of::<Update>();
 
         // Assert — the JS side reads 7 × 4 bytes per record
-        assert_eq!(size, 28);
+        assert_eq!(size, RECORD_WORDS * 4);
         assert_eq!(std::mem::align_of::<Update>(), 4);
     }
 }

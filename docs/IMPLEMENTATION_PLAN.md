@@ -467,6 +467,21 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 > - **Mutation check:** 8 new mutants (floor removed, spread 0, sells at mid, book unbounded, quantity 0, imbalance sign inverted, 4× mid jumps, buys only), all killed. 15 in total.
 > - **Complexity gate:** the first invariant test scored 8 against the limit of 7, because every `assert!` counts as a branch. I split it into price and quantity helpers.
 
+> **1.4 status (2026-11-18): done.**
+>
+> - **Implementation:** `producer.rs` has `Producer::new(count, seed) -> Option` and `generate(n) -> Option<&[u32]>`, both returning `None` outside [1, 50] and [1, 1000]. That moves the step 1.5 validation into a layer that can be tested safely.
+>   - Each update picks a random instrument with `below(count)` and writes `Update::words()` (a fixed 7-word ABI order, now tested) into one buffer that is cleared and reused.
+>   - `MAX_INSTRUMENTS` and `MAX_BATCH` live here; `RECORD_WORDS` lives in `model.rs`.
+> - **Tests (8):**
+>   - (a) lengths for n ∈ {1, 2, 100, 1000};
+>   - (b, c) indices < count, every instrument appears in 3 × 1000 updates, and every record satisfies the invariants;
+>   - (d) determinism, plus different seeds give different batches;
+>   - (e) state retention, checked two ways: 2 × 50 records must be identical to 1 × 100, **and** each instrument's bid continues across batch boundaries (≤ bid/1000 + 2 cents);
+>   - the buffer capacity never grows after warm-up;
+>   - invalid sizes are rejected.
+> - **Why (e) has two checks:** the mutation check showed that "rebuild instrument state on every update" passes the 2 × 50 = 1 × 100 test, since both producers stay in lockstep. Only the continuity check catches it.
+> - **Mutation check:** 7 new mutants, 22 in total, all killed.
+
 **Phase 1 gate:** `npm run test:rust && npm run wasm:build && npm run wasm:verify` exit 0.
 
 ---
