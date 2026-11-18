@@ -439,6 +439,13 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 > - **Control check:** `npm run wasm:compile` exits 0 and produces a 65-byte module whose exports are `memory` and `abi_version`, with `abi_version()` returning 1.
 > - **Scripts:** `npm run test:rust` runs fmt-check, clippy on native and `wasm32`, and `cargo test`. `scripts/cargo.mjs` adds the manifest path and `~/.cargo/bin`, so the scripts also work from git hooks.
 
+> **1.2 status (2026-11-18): done.**
+>
+> - **Implementation:** `rng.rs` uses `SplitMix64` seeding into PCG32 (XSH-RR), Lemire's unbiased `below`, and 53-bit `unit_f64` / `signed_unit_f64`. No crates.
+> - **Tests (7):** the plan's three (determinism, different seeds, ±10 % buckets), **known-answer vectors** (SplitMix64 for seed 1234567; PCG32 `pcg32-demo` for (42, 54), cross-checked against an independent Python implementation), edge bounds (`below(0)`, `below(1)`, `below(u32::MAX)`), and the `[0,1)` / `[-1,1)` ranges.
+> - **Mutation check:** `npm run test:rust:mutants` applies 7 realistic bugs to a temporary copy; each is killed by exactly the test meant for it. Compile-breaking mutants count as invalid, not killed.
+> - **Truncating casts:** isolated in `low32` and marked `#[expect(..., reason)]`. One `expect` turned out to be unfulfilled, so it was removed; `expect` exists to catch exactly that.
+
 **Phase 1 gate:** `npm run test:rust && npm run wasm:build && npm run wasm:verify` exit 0.
 
 ---

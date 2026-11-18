@@ -21,13 +21,14 @@
     "static": "npm run format:check && npm run lint && npm run lint:types && npm run dup && npm run deadcode && npm run audit",
     "quality:self-test": "npm run lint:probes && npm run test:lint-rules && npm run quality:probes && npm run hook:probes",
     "verify:fast": "npm run static && npm run test:rust && npm run test:unit",
-    "verify": "npm run static && npm run quality:self-test && npm run test:rust && npm run wasm:compile && npm run test:unit && npm run build",
+    "verify": "npm run static && npm run quality:self-test && npm run test:rust && npm run test:rust:mutants && npm run wasm:compile && npm run test:unit && npm run build",
     "prepare": "husky",
     "hook:probes": "node scripts/hook-probes.mjs",
     "rust:fmt": "node scripts/cargo.mjs fmt",
     "rust:lint": "node scripts/cargo.mjs fmt --check && node scripts/cargo.mjs clippy --all-targets -- -D warnings && node scripts/cargo.mjs clippy --lib --release --target wasm32-unknown-unknown -- -D warnings",
     "test:rust": "npm run rust:lint && node scripts/cargo.mjs test",
-    "wasm:compile": "node scripts/cargo.mjs build --release --target wasm32-unknown-unknown"
+    "wasm:compile": "node scripts/cargo.mjs build --release --target wasm32-unknown-unknown",
+    "test:rust:mutants": "node scripts/rust-mutants.mjs"
   },
   "private": true,
   "packageManager": "npm@11.19.0",

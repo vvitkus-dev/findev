@@ -36,6 +36,7 @@ npm run test:rust            # rustfmt --check + clippy (native & wasm32, -D war
 npm run rust:fmt             # cargo fmt on wasm/producer
 npm run wasm:compile         # cargo build --release --target wasm32-unknown-unknown
 node scripts/cargo.mjs test rng::   # any cargo subcommand on the producer crate (single Rust test module)
+npm run test:rust:mutants    # mutation check: each injected Rust bug must make a test fail (add mutants with new code)
 ```
 
 _(planned)_ These scripts join `verify` as the phases land: `wasm:build` (copies the module into `public/wasm/`) and `wasm:verify` (step 1.6); `cov:rust` (Q2.3); `test:wasm` (Node Vitest on the compiled `.wasm`, step 2.5); `test:ci` (coverage thresholds, Q2.1); `e2e` (Playwright, Q3).
