@@ -3,6 +3,7 @@ import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { App } from './app';
 import { routes } from './app.routes';
+import { BUILD_VERSION } from './core/build-info';
 import { ProducerStoreStub, provideStoreStub } from './core/producer/testing/store-stub';
 
 describe('App shell', () => {
@@ -11,7 +12,11 @@ describe('App shell', () => {
   beforeEach(() => {
     stub = new ProducerStoreStub();
     TestBed.configureTestingModule({
-      providers: [provideRouter(routes), provideStoreStub(stub)],
+      providers: [
+        provideRouter(routes),
+        provideStoreStub(stub),
+        { provide: BUILD_VERSION, useValue: 'abc1234' },
+      ],
     });
   });
 
@@ -93,5 +98,20 @@ describe('App shell', () => {
 
     // Assert
     expect(host.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('the footer names the deployed commit and links the source (8.5)', async () => {
+    // Arrange
+    const fixture = TestBed.createComponent(App);
+
+    // Act
+    await fixture.whenStable();
+
+    // Assert
+    const footer = (fixture.nativeElement as HTMLElement).querySelector('footer');
+    expect(footer?.querySelector('.build')?.textContent).toBe('abc1234');
+    expect(footer?.querySelector('a')?.getAttribute('href')).toBe(
+      'https://github.com/vvitkus-dev/findev',
+    );
   });
 });

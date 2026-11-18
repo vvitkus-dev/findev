@@ -1,12 +1,13 @@
 import { Component, computed, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { BUILD_VERSION } from './core/build-info';
 import { STATUS_VIEW } from './core/producer/producer-status-view';
 import { ProducerStore } from './core/producer/producer-store';
 import { Pill } from './shared/ui/pill';
 
 /**
  * Application shell: title, main navigation, the producer state (visible on every page) and
- * the app-wide error banner with Retry. The pill here is not a live region; the dashboard's
+ * the app-wide error banner with Retry, plus a footer naming the deployed commit. The pill here is not a live region; the dashboard's
  * status line announces changes, and errors are announced by the banner (`role="alert"`).
  */
 @Component({
@@ -34,6 +35,10 @@ import { Pill } from './shared/ui/pill';
     <main>
       <router-outlet />
     </main>
+    <footer>
+      Build <code class="build">{{ version }}</code> ·
+      <a href="https://github.com/vvitkus-dev/findev">Source on GitHub</a>
+    </footer>
   `,
   styles: `
     :host {
@@ -96,6 +101,15 @@ import { Pill } from './shared/ui/pill';
     main {
       padding: 1rem;
     }
+    footer {
+      padding: 0.75rem 1rem;
+      border-top: 1px solid #ddd;
+      color: #555;
+      font-size: 0.875rem;
+    }
+    footer a {
+      color: #1a56db;
+    }
     @media (max-width: 36rem) {
       .producer-state {
         margin-inline-start: 0;
@@ -109,4 +123,5 @@ import { Pill } from './shared/ui/pill';
 export class App {
   protected readonly store = inject(ProducerStore);
   protected readonly view = computed(() => STATUS_VIEW[this.store.status()]);
+  protected readonly version = inject(BUILD_VERSION);
 }
