@@ -127,6 +127,8 @@ Every threshold is a hard failure, and deploy is blocked unless all gates are gr
 - **`npm run quality:self-test`:** proves each gate still fires by feeding it a deliberately bad
   input (lint, coverage, duplication, Rust, Wasm ABI, dependency age, git hooks, deploy smoke).
 - **`npm run test:rust:mutants`:** injected Rust bugs must each make a test fail.
+- **`npm run test:pyramid`:** counts tests per layer (after `test:ci`) and fails on an
+  "ice-cream cone": unit ≥ 60 %, E2E ≤ 10 %, at least 3 integration tests.
 - **`npm run e2e`:** Playwright on the deploy-shaped bundle (real worker and Wasm): live rows,
   pause/resume, settings validation and apply, navigation, the Wasm-404 banner with Retry, and axe
   (no serious or critical WCAG 2 A/AA violations). In CI it runs in the pinned Playwright image

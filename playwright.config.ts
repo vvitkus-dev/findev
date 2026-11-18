@@ -9,7 +9,8 @@ const liveUrl = process.env['E2E_BASE_URL'];
 // A trailing slash makes relative paths (`page.goto('settings')`) resolve under the base.
 // Visual baselines are rendered in the pinned Linux image (scripts/e2e-docker.mjs, CI), so
 // screenshots are compared only on Linux; macOS/Windows font rendering would always differ.
-const visualHere = process.platform === 'linux';
+// E2E_VISUAL=1 forces them in (the pyramid count lists every spec on every platform).
+const visualHere = process.platform === 'linux' || process.env['E2E_VISUAL'] === '1';
 const baseURL = (liveUrl ?? `http://localhost:${String(PORT)}/findev/`).replace(/\/?$/, '/');
 
 export default defineConfig({

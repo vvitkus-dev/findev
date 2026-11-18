@@ -353,6 +353,27 @@ const smokeProbe = (name, expectCode, expectText, changes, extraArgs = []) => ({
   },
 });
 
+/** test-pyramid on a fake counts file: expects `expectCode` and `expectText` in the output. */
+const pyramidProbe = (name, counts, expectCode, expectText) => ({
+  name,
+  run: () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyramid-probe-'));
+    try {
+      const file = join(dir, 'counts.json');
+      writeFileSync(file, JSON.stringify(counts));
+      const r = spawnSync('node', ['scripts/test-pyramid.mjs', '--counts', file], {
+        encoding: 'utf8',
+        env: { ...process.env, GITHUB_STEP_SUMMARY: '' },
+      });
+      const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+      const ok = r.status === expectCode && out.includes(expectText);
+      return { ok, detail: `exit=${String(r.status)}${ok ? '' : `\n${out}`}` };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+});
+
 const PROBES = [
   // Q0.7 — duplication
   {
@@ -570,6 +591,31 @@ pub fn deep(v: &[u32]) -> u32 {
     globalOnlySize,
     'global threshold',
     'src/app/core/producer/**',
+  ),
+  // Q4.1 — testing pyramid (fake counts; the real collection runs in test:pyramid)
+  pyramidProbe(
+    'pyramid fails on an ice-cream cone (50 % E2E)',
+    { unit: 40, integration: 10, e2e: 50 },
+    1,
+    'ice-cream cone detected',
+  ),
+  pyramidProbe(
+    'pyramid fails when unit tests drop below 60 %',
+    { unit: 50, integration: 45, e2e: 5 },
+    1,
+    'unit tests are 50.0 %',
+  ),
+  pyramidProbe(
+    'pyramid fails with fewer than 3 integration tests',
+    { unit: 95, integration: 2, e2e: 3 },
+    1,
+    'only 2 integration tests',
+  ),
+  pyramidProbe(
+    'ALLOWED: a healthy pyramid passes',
+    { unit: 90, integration: 5, e2e: 5 },
+    0,
+    'Pyramid OK.',
   ),
 ];
 

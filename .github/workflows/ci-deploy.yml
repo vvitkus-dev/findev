@@ -79,6 +79,8 @@ jobs:
       - run: npm run wasm:verify
       - run: npm run test:wasm
       - run: npm run test:ci
+      # Unit ≥ 60 %, E2E ≤ 10 %, ≥ 3 integration tests; the table goes to the job summary.
+      - run: npm run test:pyramid
       - name: Production build for GitHub Pages
         env:
           REPO: ${{ github.event.repository.name }}
