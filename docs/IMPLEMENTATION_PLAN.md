@@ -569,6 +569,29 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 > - **Coverage:** 100 % on all measures.
 > - **Lint bug found:** the first Angular import in `shared/` exposed a bug in the boundary rule. The glob `**/core` also matched `@angular/core`, so shared code could not use Angular at all. It is fixed with relative-path regexes, and covered by 1 new positive and 2 negative probes (29 lint probes in total).
 
+> **2.5 status (2026-11-18): done.**
+>
+> - **`engine/wasm-generator.ts`** (interfaces in `wasm-generator.model.ts`):
+>   - `createGeneratorFactory(exports)` verifies the ABI: version first, then the five functions, `memory` and `record_words`. Any mismatch throws `WasmAbiError`.
+>   - It is split from `loadWasmGeneratorFactory(URL | BufferSource)`, so every branch can be unit-tested with a plain-object stub.
+>   - Loading from a URL uses `instantiateStreaming` only when the server sends `application/wasm`, otherwise `arrayBuffer()`, and reports HTTP errors as HTTP errors.
+>   - Seed halves and pointers are coerced with `>>> 0`.
+>   - `generate` validates `n`, turns a null pointer into `RangeError` and returns a **fresh** `Uint32Array` every call. `dispose` is idempotent, and `generate` after `dispose` throws.
+> - **Unit spec (jsdom, 18 tests, 100 % coverage):** view length and offset, seed coercion, idempotent dispose, invalid `n` and count, five ABI-mismatch shapes, the bytes loader, both URL paths (stubbed `fetch`) and HTTP 404.
+> - **`npm run test:wasm`** (`wasm-tests/`, Node environment, 10 tests on the **real** module):
+>   - batch sizes 1, 100 and 1000;
+>   - **50,000 updates** checked against every invariant;
+>   - determinism across two factory instances;
+>   - invalid counts;
+>   - a hand-encoded `abi_version() → 2` stub giving `WasmAbiError`;
+>   - generate after dispose;
+>   - a **memory-growth test**: after about 4 MB of allocations, a kept view has length 0 (detached), which proves why a fresh view is required.
+> - **Wiring:**
+>   - `test:wasm` runs in `verify:fast` (pre-push, after an incremental `wasm:build`) and in `verify`;
+>   - `wasm-tests/` is type-checked (`lint:types`), linted (`angular.json`) and scanned by knip;
+>   - `@types/node@24.19.2` is pinned with `--before`.
+> - **knip side effect:** adding `wasm-tests/vitest.config.ts` made knip's Vitest plugin ignore the Angular `*.spec.ts` entries, which then showed up as 15 "unused files". Both entry sets are now declared explicitly in `knip.jsonc`.
+
 **Phase 2 gate:** `npx ng test --watch=false` and `npm run test:wasm` exit 0; coverage of `metrics.ts`, `producer-settings.ts`, `market-format.ts` ≥ 95 % lines (`ng test --coverage`).
 
 ---

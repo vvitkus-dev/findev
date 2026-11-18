@@ -36,11 +36,12 @@ npm run test:rust            # rustfmt --check + clippy (native & wasm32, -D war
 npm run rust:fmt             # cargo fmt on wasm/producer
 npm run wasm:build           # cargo build --release (wasm32) → public/wasm/producer.wasm (git-ignored; needed by npm start)
 npm run wasm:verify          # ABI check on the built module: exact exports, no imports, ≤ 64 KB, record invariants
+npm run test:wasm            # Node Vitest suite on the real public/wasm/producer.wasm via wasm-generator.ts (run wasm:build first)
 node scripts/cargo.mjs test rng::   # any cargo subcommand on the producer crate (single Rust test module)
 npm run test:rust:mutants    # mutation check: each injected Rust bug must make a test fail (add mutants with new code)
 ```
 
-_(planned)_ These scripts join `verify` as the phases land: `cov:rust` (Q2.3); `test:wasm` (Node Vitest on the compiled `.wasm`, step 2.5); `test:ci` (coverage thresholds, Q2.1); `e2e` (Playwright, Q3).
+_(planned)_ These scripts join `verify` as the phases land: `cov:rust` (Q2.3); `test:ci` (coverage thresholds, Q2.1); `e2e` (Playwright, Q3).
 
 ## Architecture (target, see plan §1–§3)
 
