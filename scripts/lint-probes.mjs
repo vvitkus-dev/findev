@@ -118,6 +118,31 @@ const PROBES = [
     expect: ['no-restricted-syntax'],
   },
   {
+    name: 'Signal Forms: min/max attribute on a [formField] input banned',
+    file: P + 'ff-min.ts',
+    code: 'import { Component } from \'@angular/core\';\nimport { FormField } from \'@angular/forms/signals\';\n@Component({ selector: \'app-p\', imports: [FormField], template: `<input type="number" min="1" [formField]="f" />` })\nexport class P {}\n',
+    expect: ['no-restricted-syntax'],
+  },
+  {
+    name: 'Signal Forms: [disabled] on a [formField] input banned',
+    file: P + 'ff-disabled.ts',
+    code: "import { Component } from '@angular/core';\nimport { FormField } from '@angular/forms/signals';\n@Component({ selector: 'app-p', imports: [FormField], template: `<input [disabled]=\"d\" [formField]=\"f\" />` })\nexport class P {}\n",
+    expect: ['no-restricted-syntax'],
+  },
+  {
+    name: 'Signal Forms: [value] on a [formField] input banned',
+    file: P + 'ff-value.ts',
+    code: "import { Component } from '@angular/core';\nimport { FormField } from '@angular/forms/signals';\n@Component({ selector: 'app-p', imports: [FormField], template: `<input [value]=\"v\" [formField]=\"f\" />` })\nexport class P {}\n",
+    expect: ['no-restricted-syntax'],
+  },
+  {
+    name: 'ALLOWED: static value on a radio [formField] and [disabled] on a button',
+    file: P + 'ff-ok.ts',
+    code: 'import { Component } from \'@angular/core\';\nimport { FormField } from \'@angular/forms/signals\';\n@Component({ selector: \'app-p\', imports: [FormField], template: `<input type="radio" value="a" [formField]="f" /><button type="button" [disabled]="d">x</button>` })\nexport class P {}\n',
+    expect: [],
+    forbid: ['no-restricted-syntax'],
+  },
+  {
     name: '@Injectable banned (use @Service)',
     file: P + 'injectable.ts',
     code: "import { Injectable } from '@angular/core';\n@Injectable({ providedIn: 'root' })\nexport class Svc {}\n",

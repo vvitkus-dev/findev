@@ -67,6 +67,15 @@ const BAN_NEW_WORKER = {
   message:
     'One worker per app: create it only via the WORKER_FACTORY default in core/producer/producer-tokens.ts.',
 };
+const ON_FORM_FIELD = "Element:has(BoundAttribute[name='formField'])";
+const FORM_FIELD_MESSAGE =
+  'Signal Forms: no min/max/value/disabled/readonly on a [formField] input — use schema rules (min(), max(), disabled(), readonly()).';
+const FORM_FIELD_BANS = [
+  `${ON_FORM_FIELD} > :matches(TextAttribute, BoundAttribute)[name=/^(min|max|disabled|readonly)$/]`,
+  `${ON_FORM_FIELD} > BoundAttribute[name='value']`,
+  // A static value is allowed (and required) on radio/checkbox inputs: it names the option.
+  `${ON_FORM_FIELD}:not(:has(TextAttribute[name='type'][value=/^(radio|checkbox)$/])) > TextAttribute[name='value']`,
+].map((selector) => ({ selector, message: FORM_FIELD_MESSAGE }));
 const restrictedSyntax = (...bans) => ['error', BAN_INJECTABLE, BAN_NEW_WORKER, ...bans];
 
 module.exports = defineConfig([
@@ -226,6 +235,8 @@ module.exports = defineConfig([
       '@angular-eslint/template/no-any': 'error',
       '@angular-eslint/template/cyclomatic-complexity': ['error', { maxComplexity: 8 }],
       '@angular-eslint/template/conditional-complexity': ['error', { maxComplexity: 4 }],
+      // Signal Forms: [formField] owns these; limits/state come from the schema (angular-developer skill).
+      'no-restricted-syntax': ['error', ...FORM_FIELD_BANS],
     },
   },
 ]);
