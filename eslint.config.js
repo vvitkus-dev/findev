@@ -31,11 +31,14 @@ const restrictedImports = (...patterns) => [
   'error',
   { paths: [FORMS_BAN], patterns: patterns.flat() },
 ];
+// Relative-path regexes only: a glob like `**/core` would also match npm packages such as
+// `@angular/core` (it did — caught when the first shared pipe was written).
+const relativeDir = (dir) => `^\\.{1,2}/(\\.\\./)*${dir}(/|$)|(^|/)src/app/${dir}(/|$)`;
 const NO_FEATURES = {
-  group: ['**/features/**', '**/features'],
+  regex: relativeDir('features'),
   message: 'core/shared must not depend on features.',
 };
-const NO_CORE = { group: ['**/core/**', '**/core'], message: 'shared must not depend on core.' };
+const NO_CORE = { regex: relativeDir('core'), message: 'shared must not depend on core.' };
 const NO_FRAMEWORK = {
   group: ['@angular/*', '@angular/**', 'rxjs', 'rxjs/*'],
   message: 'core/producer/engine runs in the Web Worker and must stay framework-free.',

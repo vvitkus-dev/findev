@@ -82,6 +82,12 @@ const PROBES = [
     expect: ['no-restricted-imports'],
   },
   {
+    name: 'shared must not import core via a deeper relative path',
+    file: 'shared/format/__probe.ts',
+    code: "import '../../core/producer/engine/metrics';\n",
+    expect: ['no-restricted-imports'],
+  },
+  {
     name: 'feature must not import another feature',
     file: 'features/dashboard/__probe.ts',
     code: "import '../settings/settings';\n",
@@ -183,6 +189,20 @@ const PROBES = [
     name: 'ALLOWED: feature imports its own subfolder and core',
     file: 'features/dashboard/components/__probe_ok.ts',
     code: "import '../models/row';\nimport '../../../core/producer/producer-store';\nimport '../dashboard';\n",
+    expect: [],
+    forbid: ['no-restricted-imports'],
+  },
+  {
+    name: 'ALLOWED: shared imports @angular/core and its own folder',
+    file: 'shared/format/__probe_ok.ts',
+    code: "import { Pipe } from '@angular/core';\nimport { TestBed } from '@angular/core/testing';\nimport '../format/market-format';\nimport './market-format';\nexport const x = [Pipe, TestBed];\n",
+    expect: [],
+    forbid: ['no-restricted-imports'],
+  },
+  {
+    name: 'ALLOWED: core imports @angular/core (only engine/ is framework-free)',
+    file: 'core/producer/__probe_ok.ts',
+    code: "import { signal } from '@angular/core';\nexport const s = signal(0);\n",
     expect: [],
     forbid: ['no-restricted-imports'],
   },
