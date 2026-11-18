@@ -594,6 +594,20 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 
 **Phase 2 gate:** `npx ng test --watch=false` and `npm run test:wasm` exit 0; coverage of `metrics.ts`, `producer-settings.ts`, `market-format.ts` ≥ 95 % lines (`ng test --coverage`).
 
+> **2.6 status (2026-11-18): done.**
+>
+> - **Grep:** `grep -rnE 'Math\.random|crypto\.getRandomValues' src/app/core/producer --include='*.ts' | grep -v '\.spec\.ts'` finds **0 matches**. The same grep found a known token, which proves it works.
+> - **Why zero is right:** the expected single match is `producer-store.ts`, the seed source, which does not exist until Phase 4.
+> - **Repo-wide:** `Math.random` appears 0 times in `src/` and `wasm-tests/`, specs included. The Rust crate has no dependencies.
+> - **Kept that way permanently by** the ESLint `Math.random` ban on `core/**` and specs, which has a lint probe.
+>
+> **Phase 2 gate (2026-11-18): passed.**
+>
+> - `npx ng test --watch=false --coverage`: **97 tests**; all files **100 % lines and statements**, 99.1 % branches. `metrics.ts` is at 100 % lines and 95.65 % branches; its one uncovered branch is the `noUncheckedIndexedAccess` fallback.
+> - `npm run test:wasm`: **10 tests** on the real module.
+> - The ≥ 95 % line requirement for `metrics.ts`, `producer-settings.ts` and `market-format.ts` is met (all at 100 %).
+> - The thresholds are not yet enforced automatically; that is Q2.1 (`test:ci`).
+
 ---
 
 ### Phase 3 — Worker-side engine
