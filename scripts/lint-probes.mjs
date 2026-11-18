@@ -1,34 +1,38 @@
 #!/usr/bin/env node
 // Proves every quality lint rule actually fires (docs/QUALITY_GATES_PLAN.md Q0 gate).
 // Writes deliberately bad probe files, lints them, asserts the expected rule ids, deletes them.
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { ESLint } from 'eslint';
 
-const DIR = 'src/app/__lint_probes__';
+// Probe paths are relative to src/app. Default location is a throwaway folder; boundary
+// probes are placed inside real architecture folders (files are always prefixed `__probe`).
+const ROOT = 'src/app';
+const P = '__lint_probes__/';
 
 const branches = (n) =>
   Array.from({ length: n }, (_, i) => `  if (v === ${i}) { return ${i}; }`).join('\n');
 
-/** @type {{ name: string, file: string, code: string, expect: string[] }[]} */
+/** `expect`: rule ids that MUST fire. `forbid`: rule ids that must NOT fire (false-positive guard). */
+/** @type {{ name: string, file: string, code: string, expect: string[], forbid?: string[] }[]} */
 const PROBES = [
   // Q0.2 — type safety
   {
     name: 'explicit any',
-    file: 'any.ts',
+    file: P + 'any.ts',
     code: 'export const x: any = 1;\n',
     expect: ['@typescript-eslint/no-explicit-any'],
   },
   // Q0.3 — complexity & size
   {
     name: 'cyclomatic complexity > 10',
-    file: 'complexity.ts',
+    file: P + 'complexity.ts',
     code: `export function f(v: number): number {\n${branches(11)}\n  return -1;\n}\n`,
     expect: ['complexity'],
   },
   {
     name: 'cognitive complexity > 15',
-    file: 'cognitive.ts',
+    file: P + 'cognitive.ts',
     code: `export function g(a: number[], b: boolean, c: boolean): number {
   let s = 0;
   for (const x of a) {
@@ -47,37 +51,119 @@ const PROBES = [
   },
   {
     name: 'too many params',
-    file: 'params.ts',
+    file: P + 'params.ts',
     code: 'export function h(a: number, b: number, c: number, d: number, e: number): number {\n  return a + b + c + d + e;\n}\n',
     expect: ['max-params'],
   },
   {
     name: 'template cyclomatic complexity > 8',
-    file: 'tpl-complexity.html',
+    file: P + 'tpl-complexity.html',
     code: Array.from({ length: 9 }, (_, i) => `@if (v === ${i}) {<span>${i}</span>}`).join('\n') + '\n',
     expect: ['@angular-eslint/template/cyclomatic-complexity'],
   },
+  // Q0.4 — architecture boundaries & API bans
+  {
+    name: 'engine must be framework-free',
+    file: 'core/producer/engine/__probe.ts',
+    code: "import { signal } from '@angular/core';\nexport const s = signal(1);\n",
+    expect: ['no-restricted-imports'],
+  },
+  {
+    name: 'core must not import features',
+    file: 'core/__probe.ts',
+    code: "import '../features/dashboard/dashboard';\n",
+    expect: ['no-restricted-imports'],
+  },
+  {
+    name: 'shared must not import core',
+    file: 'shared/__probe.ts',
+    code: "import '../core/producer/producer-store';\n",
+    expect: ['no-restricted-imports'],
+  },
+  {
+    name: 'feature must not import another feature',
+    file: 'features/dashboard/__probe.ts',
+    code: "import '../settings/settings';\n",
+    expect: ['no-restricted-imports'],
+  },
+  {
+    name: 'Reactive Forms banned (Signal Forms only)',
+    file: P + 'forms.ts',
+    code: "import { FormControl } from '@angular/forms';\nexport const c = new FormControl(1);\n",
+    expect: ['no-restricted-imports'],
+  },
+  {
+    name: 'Math.random banned in core',
+    file: 'core/__probe_random.ts',
+    code: 'export const r = Math.random();\n',
+    expect: ['no-restricted-syntax'],
+  },
+  {
+    name: '@Injectable banned (use @Service)',
+    file: P + 'injectable.ts',
+    code: "import { Injectable } from '@angular/core';\n@Injectable({ providedIn: 'root' })\nexport class Svc {}\n",
+    expect: ['no-restricted-syntax'],
+  },
+  {
+    name: 'fixture.detectChanges banned in specs',
+    file: P + 'cd.spec.ts',
+    code: "declare const fixture: { detectChanges(): void };\nit('x', () => {\n  fixture.detectChanges();\n  expect(1).toBe(1);\n});\n",
+    expect: ['no-restricted-syntax'],
+  },
+  // Negative probes — legitimate code must stay clean (no false positives)
+  {
+    name: 'ALLOWED: feature imports its own subfolder and core',
+    file: 'features/dashboard/components/__probe_ok.ts',
+    code: "import '../models/row';\nimport '../../../core/producer/producer-store';\nimport '../dashboard';\n",
+    expect: [],
+    forbid: ['no-restricted-imports'],
+  },
+  {
+    name: 'ALLOWED: Signal Forms import',
+    file: P + 'signal-forms.ts',
+    code: "import { form } from '@angular/forms/signals';\nexport const f = form;\n",
+    expect: [],
+    forbid: ['no-restricted-imports'],
+  },
 ];
 
-mkdirSync(DIR, { recursive: true });
+// Create probes, remembering which directories we created so cleanup never touches real code.
+const createdDirs = [];
+const createdFiles = [];
+const ensureDir = (dir) => {
+  if (existsSync(dir)) return;
+  ensureDir(dirname(dir));
+  mkdirSync(dir);
+  createdDirs.push(dir);
+};
 let failed = 0;
 try {
-  for (const p of PROBES) writeFileSync(join(DIR, p.file), p.code);
-  const eslint = new ESLint();
-  const results = await eslint.lintFiles([`${DIR}/**/*`]);
   for (const p of PROBES) {
-    const r = results.find((x) => x.filePath.endsWith(`${DIR}/${p.file}`));
+    const path = join(ROOT, p.file);
+    if (existsSync(path)) throw new Error(`Refusing to overwrite existing file ${path}`);
+    ensureDir(dirname(path));
+    writeFileSync(path, p.code);
+    createdFiles.push(path);
+  }
+  const eslint = new ESLint();
+  const results = await eslint.lintFiles(createdFiles);
+  for (const p of PROBES) {
+    const r = results.find((x) => x.filePath === resolve(ROOT, p.file));
     const fired = new Set((r?.messages ?? []).map((m) => m.ruleId ?? `parse:${m.message}`));
     const missing = p.expect.filter((id) => !fired.has(id));
-    if (missing.length) {
+    const unexpected = (p.forbid ?? []).filter((id) => fired.has(id));
+    if (missing.length || unexpected.length) {
       failed++;
-      console.error(`FAIL  ${p.name}: missing [${missing.join(', ')}]; fired [${[...fired].join(', ')}]`);
+      console.error(
+        `FAIL  ${p.name}: missing [${missing.join(', ')}] unexpected [${unexpected.join(', ')}]; fired [${[...fired].join(', ')}]`,
+      );
     } else {
-      console.log(`PASS  ${p.name}: ${p.expect.join(', ')}`);
+      console.log(`PASS  ${p.name}: ${p.expect.join(', ') || `no ${(p.forbid ?? []).join(', ')}`}`);
     }
   }
 } finally {
-  rmSync(DIR, { recursive: true, force: true });
+  for (const f of createdFiles) rmSync(f, { force: true });
+  for (const d of createdDirs.reverse()) rmSync(d, { recursive: true, force: true });
 }
 console.log(failed ? `\n${failed} probe(s) failed` : `\nAll ${PROBES.length} probes fired as expected`);
 process.exit(failed ? 1 : 0);

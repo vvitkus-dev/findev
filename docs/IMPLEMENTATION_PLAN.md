@@ -177,16 +177,16 @@ Signal Forms rules that apply here (from `.claude/skills/angular-developer/refer
 ├── src/app/
 │   ├── app.ts / app.html / app.routes.ts / app.config.ts
 │   ├── core/producer/
-│   ├── core/producer/
-│   │   ├── protocol.model.ts           # message types (main ⇄ worker) — models keep `.model.ts`
-│   │   ├── producer-settings.model.ts  # interface ProducerSettings
-│   │   ├── producer-settings.ts        # DEFAULT_SETTINGS, SETTINGS_LIMITS, validateSettings()
-│   │   ├── symbols.ts                  # 50 deterministic tickers
-│   │   ├── metrics.ts                  # accumulator + applyBatch + deriveMetrics
-│   │   ├── scheduler.ts                # Scheduler/Clock interfaces + real impls
-│   │   ├── wasm-generator.ts           # WebAssembly adapter (no Angular deps)
-│   │   ├── producer-engine.ts          # worker-side state machine (pure TS)
-│   │   ├── producer.worker.ts          # thin adapter: self.onmessage → engine
+│   │   ├── engine/                     # FRAMEWORK-FREE (lint-enforced, Q0.4): runs in the worker / Node tests
+│   │   │   ├── protocol.model.ts       # message types (main ⇄ worker) — models keep `.model.ts`
+│   │   │   ├── producer-settings.model.ts  # interface ProducerSettings
+│   │   │   ├── producer-settings.ts    # DEFAULT_SETTINGS, SETTINGS_LIMITS, validateSettings()
+│   │   │   ├── symbols.ts              # 50 deterministic tickers
+│   │   │   ├── metrics.ts              # accumulator + applyBatch + deriveMetrics
+│   │   │   ├── scheduler.ts            # Scheduler/Clock interfaces + real impls
+│   │   │   ├── wasm-generator.ts       # WebAssembly adapter
+│   │   │   ├── producer-engine.ts      # worker-side state machine
+│   │   │   └── producer.worker.ts      # thin adapter: self.onmessage → engine
 │   │   ├── producer-tokens.ts          # WORKER_FACTORY, SEED_SOURCE, WASM_URL InjectionTokens
 │   │   └── producer-store.ts           # @Service() ProducerStore — signals, runId gate
 │   ├── shared/format/
