@@ -53,6 +53,10 @@ tester.run('local/aaa-sections', rule, {
       code: `it.each([1])('x %i', (n) => {\n// Act\nconst r = n;\n// Assert\nexpect(r).toBe(1);\n});`,
     },
     { name: 'non-test calls ignored', code: `describe('d', () => { foo(); });` },
+    {
+      name: 'Playwright suites and hooks are not tests',
+      code: `test.describe('d', () => { foo(); });\ntest.beforeEach(async ({ page }) => { await page.goto('/'); });\ntest.afterAll(() => { bar(); });`,
+    },
   ],
   invalid: [
     {
@@ -74,6 +78,11 @@ tester.run('local/aaa-sections', rule, {
       name: 'Assert before Act only',
       code: `it('x', () => {\n// Assert\nexpect(1).toBe(1);\n// Act\nrun();\n});`,
       errors: [{ messageId: 'missingAssert' }],
+    },
+    {
+      name: 'Playwright modifier still a test',
+      code: `test.fixme('x', () => { expect(1).toBe(1); });`,
+      errors: [{ messageId: 'missingAct' }],
     },
     {
       name: 'Arrange after Act',

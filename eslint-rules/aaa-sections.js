@@ -8,13 +8,25 @@
 
 const SECTION = /^\s*(Arrange|Act & Assert|Act|Assert)\b/;
 const TEST_FNS = new Set(['it', 'test']);
+// Playwright hangs suites, hooks and steps off `test`; their callbacks are not tests.
+const NOT_TESTS = new Set([
+  'describe',
+  'beforeEach',
+  'afterEach',
+  'beforeAll',
+  'afterAll',
+  'step',
+  'use',
+  'extend',
+]);
 
 /** @param {import('eslint').Rule.Node} callee */
 function isTestCall(callee) {
   if (callee.type === 'Identifier') return TEST_FNS.has(callee.name);
   // it.each(...)(...) / test.concurrent(...)
   if (callee.type === 'MemberExpression' && callee.object.type === 'Identifier') {
-    return TEST_FNS.has(callee.object.name);
+    const member = callee.property.type === 'Identifier' ? callee.property.name : '';
+    return TEST_FNS.has(callee.object.name) && !NOT_TESTS.has(member);
   }
   if (callee.type === 'CallExpression') return isTestCall(callee.callee);
   return false;

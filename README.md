@@ -90,6 +90,7 @@ a sliding 1 s window.
   automatically on first use.
 - For `npm run verify` only: `cargo +1.99.0 install cargo-llvm-cov --version 0.9.1 --locked`
   (Rust coverage)
+- For the E2E suite (`npm run e2e`, `npm run verify`): `npx playwright install chromium`
 
 ## Commands
 
@@ -98,11 +99,13 @@ npm ci                      # install exact, pinned dependencies
 npm run wasm:build          # compile the Rust producer → public/wasm/producer.wasm (needed by npm start)
 npm start                   # dev server at http://localhost:4200
 npm run build               # production build → dist/findev/browser
+npm run build:pages         # same, shaped like the Pages deploy: base /findev/ + 404.html fallback
 
 npm run test:unit           # Angular unit + integration tests (Vitest, once)
 npm run test:rust           # rustfmt --check, clippy (pedantic, -D warnings), cargo test
 npm run test:wasm           # Node test suite on the real compiled producer.wasm (run wasm:build first)
-npm run verify              # every gate: static checks, gate self-test, Rust, Wasm, unit tests, build
+npm run e2e                 # Playwright (Chromium) on the Pages build served under /findev/
+npm run verify              # every gate: static checks, gate self-test, Rust, Wasm, unit tests, build, E2E
 ```
 
 ## Quality gates

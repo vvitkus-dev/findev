@@ -94,7 +94,11 @@ module.exports = defineConfig([
     ],
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        // The root tsconfig lists no files; the Playwright config is typed by the E2E project.
+        projectService: {
+          allowDefaultProject: ['playwright.config.ts'],
+          defaultProject: 'e2e/tsconfig.json',
+        },
         tsconfigRootDir: __dirname,
       },
     },
@@ -180,6 +184,13 @@ module.exports = defineConfig([
       'vitest/consistent-test-it': ['error', { fn: 'it', withinDescribe: 'it' }],
       'vitest/prefer-to-be': 'error',
     },
+  },
+
+  // Playwright E2E (Q3.2): same AAA sections and no focused tests; Vitest rules don't apply.
+  {
+    files: ['e2e/**/*.e2e.ts'],
+    plugins: { local },
+    rules: { 'local/aaa-sections': 'error' },
   },
 
   // ---- Complexity & size limits (Q0.3) -----------------------------------

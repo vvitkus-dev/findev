@@ -8,6 +8,7 @@
     "wasm-tests/**/*.ts",
     "scripts/**/*.mjs",
     "eslint-rules/**/*.{js,mjs}",
+    "e2e/**/*.ts",
   ],
   // Two Vitest setups: Angular unit tests (`ng test`, no config file) and the Node Wasm suite.
   // Declared explicitly: once wasm-tests/vitest.config.mts exists, knip would otherwise only see its tests.

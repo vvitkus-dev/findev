@@ -13,8 +13,9 @@ const P = '__lint_probes__/';
 const branches = (n) =>
   Array.from({ length: n }, (_, i) => `  if (v === ${i}) { return ${i}; }`).join('\n');
 
-/** `expect`: rule ids that MUST fire. `forbid`: rule ids that must NOT fire (false-positive guard). */
-/** @type {{ name: string, file: string, code: string, expect: string[], forbid?: string[] }[]} */
+/** `expect`: rule ids that MUST fire. `forbid`: rule ids that must NOT fire (false-positive guard).
+ * `root` overrides the base folder (default src/app), e.g. `e2e` for Playwright specs. */
+/** @type {{ name: string, file: string, code: string, expect: string[], forbid?: string[], root?: string }[]} */
 const PROBES = [
   // Q0.2 — type safety
   {
@@ -186,6 +187,21 @@ const PROBES = [
     code: "describe('d', () => {\n  it('x', () => {\n    expect(1).toBe(1);\n  });\n});\n",
     expect: ['local/aaa-sections'],
   },
+  {
+    name: 'E2E test without AAA sections',
+    root: 'e2e',
+    file: '__probe_aaa.e2e.ts',
+    code: "import { expect, test } from '@playwright/test';\ntest('x', async ({ page }) => {\n  await page.goto('/');\n  await expect(page).toHaveTitle('x');\n});\n",
+    expect: ['local/aaa-sections'],
+  },
+  {
+    name: 'ALLOWED: Playwright hooks need no AAA sections',
+    root: 'e2e',
+    file: '__probe_hooks.e2e.ts',
+    code: "import { test } from '@playwright/test';\ntest.beforeEach(async ({ page }) => {\n  await page.goto('/');\n});\n",
+    expect: [],
+    forbid: ['local/aaa-sections'],
+  },
   // Q1.5 — suppression discipline
   {
     name: 'eslint-disable without a reason',
@@ -271,7 +287,7 @@ const ensureDir = (dir) => {
 let failed = 0;
 try {
   for (const p of PROBES) {
-    const path = join(ROOT, p.file);
+    const path = join(p.root ?? ROOT, p.file);
     if (existsSync(path)) throw new Error(`Refusing to overwrite existing file ${path}`);
     ensureDir(dirname(path));
     writeFileSync(path, p.code);
@@ -280,7 +296,7 @@ try {
   const eslint = new ESLint();
   const results = await eslint.lintFiles(createdFiles);
   for (const p of PROBES) {
-    const r = results.find((x) => x.filePath === resolve(ROOT, p.file));
+    const r = results.find((x) => x.filePath === resolve(p.root ?? ROOT, p.file));
     const fired = new Set((r?.messages ?? []).map((m) => m.ruleId ?? `parse:${m.message}`));
     const missing = p.expect.filter((id) => !fired.has(id));
     const unexpected = (p.forbid ?? []).filter((id) => fired.has(id));
