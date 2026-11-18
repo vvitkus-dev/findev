@@ -67,6 +67,42 @@ function withRustCrate(code, args) {
     rmSync(dir, { recursive: true, force: true });
   }
 }
+/** Builds a copy of the crate for wasm32 with one source edit, then runs verify-wasm on it. */
+function verifyMutatedWasm(file, from, to) {
+  const dir = mkdtempSync(join(tmpdir(), 'wasm-probe-'));
+  try {
+    cpSync('wasm/producer', dir, { recursive: true, filter: (src) => !src.includes('/target') });
+    cpSync('rust-toolchain.toml', join(dir, 'rust-toolchain.toml'));
+    const path = join(dir, file);
+    const src = readFileSync(path, 'utf8');
+    if (src.split(from).length !== 2) return { code: -1, out: `pattern not unique in ${file}` };
+    writeFileSync(path, src.replace(from, to));
+    const env = {
+      ...process.env,
+      PATH: [process.env.PATH, join(homedir(), '.cargo', 'bin')].join(delimiter),
+    };
+    const build = spawnSync('cargo', ['build', '--release', '--target', 'wasm32-unknown-unknown'], {
+      cwd: dir,
+      encoding: 'utf8',
+      env,
+    });
+    if (build.status !== 0) return { code: -1, out: `build failed\n${build.stderr}` };
+    const wasm = join(dir, 'target/wasm32-unknown-unknown/release/market_producer.wasm');
+    return run('node', ['scripts/verify-wasm.mjs', wasm]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** verify-wasm must exit 1 and mention `expect` in its report. */
+const wasmVerifyProbe = (name, expect, mutate) => ({
+  name,
+  run: () => {
+    const r = mutate();
+    return { ok: r.code === 1 && r.out.includes(expect), detail: `exit=${r.code} ${r.out.trim()}` };
+  },
+});
+
 const CLIPPY = ['clippy', '--all-targets', '--message-format', 'json', '--', '-D', 'warnings'];
 /** Lint codes (e.g. `clippy::unwrap_used`) reported in cargo's JSON message stream. */
 const lintCodes = (out) =>
@@ -240,6 +276,26 @@ pub fn deep(v: &[u32]) -> u32 {
       return { ok: r.code === 0, detail: `exit=${r.code}${r.code === 0 ? '' : `\n${r.out}`}` };
     },
   },
+  // verify-wasm (Implementation step 1.6): the ABI check must reject wrong modules.
+  wasmVerifyProbe('verify-wasm rejects a module without the ABI exports', 'exports mismatch', () =>
+    withFiles({ 'src/app/__quality_probes__/empty.wasm': '\0asm\x01\0\0\0' }, () =>
+      run('node', ['scripts/verify-wasm.mjs', 'src/app/__quality_probes__/empty.wasm']),
+    ),
+  ),
+  wasmVerifyProbe('verify-wasm rejects a bumped ABI version', 'abi_version() = 2', () =>
+    verifyMutatedWasm(
+      'src/abi.rs',
+      'pub const ABI_VERSION: u32 = 1;',
+      'pub const ABI_VERSION: u32 = 2;',
+    ),
+  ),
+  wasmVerifyProbe('verify-wasm rejects records that break an invariant', 'trade qty < 1', () =>
+    verifyMutatedWasm(
+      'src/model.rs',
+      'trade_qty: 1 + rng.below(MAX_TRADE_QTY),',
+      'trade_qty: rng.below(MAX_TRADE_QTY),',
+    ),
+  ),
 ];
 
 let failed = 0;

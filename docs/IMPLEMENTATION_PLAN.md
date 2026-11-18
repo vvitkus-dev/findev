@@ -436,7 +436,7 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 >
 > - **Crate:** `wasm/producer` (`market-producer`, edition 2024, `cdylib` + `rlib`, release profile as specified, no dependencies).
 > - **Starting point:** `lib.rs` holds only `ABI_VERSION`, the `abi_version()` export and its test.
-> - **Control check:** `npm run wasm:compile` exits 0 and produces a 65-byte module whose exports are `memory` and `abi_version`, with `abi_version()` returning 1.
+> - **Control check:** `npm run wasm:compile` (replaced by `wasm:build` in 1.6) exits 0 and produces a 65-byte module whose exports are `memory` and `abi_version`, with `abi_version()` returning 1.
 > - **Scripts:** `npm run test:rust` runs fmt-check, clippy on native and `wasm32`, and `cargo test`. `scripts/cargo.mjs` adds the manifest path and `~/.cargo/bin`, so the scripts also work from git hooks.
 
 > **1.2 status (2026-11-18): done.**
@@ -496,6 +496,19 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 >   - `destroy(null)` is a no-op.
 > - **Mutation check:** 3 seed-packing mutants, all killed (25 in total).
 > - **Smoke check from Node on the real `.wasm`:** 22,238 bytes; exports are exactly `memory, abi_version, producer_create, producer_destroy, producer_generate, record_words`; records are valid; invalid inputs return 0. Step 1.6 makes this check permanent (`verify-wasm.mjs`).
+
+> **1.6 status (2026-11-18): done.**
+>
+> - **Scripts:** `scripts/build-wasm.mjs` runs cargo through `cargo.mjs` and copies the module to `public/wasm/producer.wasm` (git-ignored). `scripts/verify-wasm.mjs [path]` checks:
+>   - the exact export names **and kinds**;
+>   - **no imports**, since the worker instantiates the module with `{}`;
+>   - `abi_version() == 1` and `record_words() == 7`;
+>   - size ≤ 64 KB;
+>   - a 1000-record round trip: every record satisfies the invariants, the same seed gives the same output, and the view is re-created after `generate`;
+>   - all invalid inputs return 0.
+> - **Control check:** `npm run wasm:build && npm run wasm:verify` → `OK exports=6 size=22238B`.
+> - **Failure probes (in `quality-probes.mjs`):** the verifier must reject an empty module (exports mismatch), a copy built with `ABI_VERSION = 2`, and a copy whose trade quantity can be 0 (an invariant break visible only in the records).
+> - **Wiring:** `verify` now runs `wasm:build` and `wasm:verify` in place of the old `wasm:compile`.
 
 **Phase 1 gate:** `npm run test:rust && npm run wasm:build && npm run wasm:verify` exit 0.
 
