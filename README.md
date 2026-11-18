@@ -51,18 +51,18 @@ flowchart LR
 
 ### Decisions and trade-offs
 
-| Decision                   | Chosen                                                       | Why, and what was rejected                                                                                          |
-| -------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| Wasm language              | Rust, `wasm32-unknown-unknown`                               | Tiny output (< 64 KB, checked), native `cargo test`. AssemblyScript reads as "TS in Wasm"; Emscripten is heavy.     |
-| JS ↔ Wasm interface        | Raw C ABI + `Uint32Array` view                               | Zero copies, zero glue, explainable byte by byte. wasm-bindgen adds generated glue and copies arrays.               |
-| Batch format               | Array of structs, 7 × `u32` (28 B/update)                    | One pointer, one view. JS objects per update would mean 20 000 allocations/s.                                       |
-| Where metrics are computed | Sums in the worker, derivation on the main thread            | The UI thread never sees raw batches; stale runs are dropped whole. Both halves are pure, unit-tested functions.    |
-| Worker lifecycle           | One worker per app, one Wasm generator per run               | Navigation can never create a producer; Apply is cheap. A new worker is created only by Retry after a fatal error.  |
-| Scheduling                 | Worker-side `setTimeout`, delay `max(0, interval − elapsed)` | No overlapping ticks and no catch-up bursts after a pause or a throttled tab. `setInterval` was rejected for both.  |
-| Run isolation              | `runId` on every command and snapshot, checked on both sides | Apply resets the rows synchronously; a late snapshot from the old run can never leak into the new one.              |
-| State                      | `@Service()` store with signals                              | Idiomatic zoneless Angular 22. NgRx is heavy for one feature.                                                       |
-| Forms                      | Signal Forms with a validation schema                        | The v22 recommendation for new forms; limits come only from `SETTINGS_LIMITS`.                                      |
-| Hosting                    | GitHub Pages via GitHub Actions                              | Same platform as the repo, Rust and Node on one runner. Needs `--base-href /findev/` and a `404.html` SPA fallback. |
+| Decision                   | Chosen                                                       | Why, and what was rejected                                                                                                                                       |
+| -------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Wasm language              | Rust, `wasm32-unknown-unknown`                               | Tiny output (< 64 KB, checked), native `cargo test`. AssemblyScript reads as "TS in Wasm"; Emscripten is heavy.                                                  |
+| JS ↔ Wasm interface        | Raw C ABI + `Uint32Array` view                               | Zero copies, zero glue, explainable byte by byte. wasm-bindgen adds generated glue and copies arrays.                                                            |
+| Batch format               | Array of structs, 7 × `u32` (28 B/update)                    | One pointer, one view. JS objects per update would mean 20 000 allocations/s.                                                                                    |
+| Where metrics are computed | Sums in the worker, derivation on the main thread            | The UI thread never sees raw batches; stale runs are dropped whole. Both halves are pure, unit-tested functions.                                                 |
+| Worker lifecycle           | One worker per app, one Wasm generator per run               | Navigation can never create a producer; Apply is cheap. A new worker is created only by Retry after a fatal error.                                               |
+| Scheduling                 | Worker-side `setTimeout`, delay `max(0, interval − elapsed)` | No overlapping ticks and no catch-up bursts after a pause or a throttled tab. `setInterval` was rejected for both.                                               |
+| Run isolation              | `runId` on every command and snapshot, checked on both sides | Apply resets the rows synchronously; a late snapshot from the old run can never leak into the new one.                                                           |
+| State                      | `@Service()` store with signals                              | Idiomatic zoneless Angular 22. NgRx is heavy for one feature.                                                                                                    |
+| Forms                      | Signal Forms with a validation schema                        | The v22 recommendation for new forms; limits come only from `SETTINGS_LIMITS`.                                                                                   |
+| Hosting                    | GitHub Pages via GitHub Actions                              | Same platform as the repo, Rust and Node on one runner. Needs `--base-href /findev/`, one HTML page per route (deep links answer 200) and a `404.html` fallback. |
 
 ## Data model and formulas
 
@@ -99,7 +99,7 @@ npm ci                      # install exact, pinned dependencies
 npm run wasm:build          # compile the Rust producer → public/wasm/producer.wasm (needed by npm start)
 npm start                   # dev server at http://localhost:4200
 npm run build               # production build → dist/findev/browser
-npm run build:pages         # same, shaped like the Pages deploy: base /findev/ + 404.html fallback
+npm run build:pages         # same, shaped like the Pages deploy: base /findev/, a page per route, 404.html
 
 npm run test:unit           # Angular unit + integration tests (Vitest, once)
 npm run test:rust           # rustfmt --check, clippy (pedantic, -D warnings), cargo test

@@ -3,7 +3,8 @@
 //   node scripts/smoke-deploy.mjs <base-url> [--sha <short-sha>] [--timeout <seconds>]
 // 1. GET <base>/            → 200, HTML contains <app-root
 // 2. GET <base>/wasm/producer.wasm → 200, content-type application/wasm
-// 3. GET <base>/settings    → deep link serves the app shell (200, or 404 via 404.html)
+// 3. GET <base>/dashboard, /settings → 200 with the app shell (one page per route)
+//    GET <base>/no-such-page        → 404 with the app shell (404.html fallback)
 // 4. --sha: the main bundle referenced by index.html contains the commit SHA (the live site is
 //    the new build, not a cached old one).
 // Pages can take a moment to switch over after a deploy, so failed checks are retried until
@@ -32,6 +33,12 @@ async function get(path) {
   };
 }
 
+/** null when the response has one of `statuses` and contains the app shell. */
+const shellProblem = (r, statuses) =>
+  statuses.includes(r.status) && r.body.includes('<app-root')
+    ? null
+    : `status ${r.status}, app shell ${r.body.includes('<app-root') ? 'present' : 'missing'}`;
+
 const checks = [
   [
     'index serves the app shell',
@@ -49,14 +56,13 @@ const checks = [
         : `status ${r.status}, content-type "${r.type}"`;
     },
   ],
+  ...['dashboard', 'settings'].map((route) => [
+    `deep link /${route} serves the app shell with status 200`,
+    async () => shellProblem(await get(route), [200]),
+  ]),
   [
-    'deep link /settings serves the app shell',
-    async () => {
-      const r = await get('settings');
-      return [200, 404].includes(r.status) && r.body.includes('<app-root')
-        ? null
-        : `status ${r.status}, app shell ${r.body.includes('<app-root') ? 'present' : 'missing'}`;
-    },
+    'unknown URL falls back to the app shell (404.html)',
+    async () => shellProblem(await get('no-such-page'), [404]),
   ],
 ];
 if (sha) {

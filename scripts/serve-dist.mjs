@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Serves the Pages build the way GitHub Pages does, for the E2E suite (docs/QUALITY_GATES_PLAN.md Q3.1):
-// the app lives under a sub-path (`/findev/`), unknown paths get `404.html` with status 404
-// (the SPA fallback), and `.wasm` is served as `application/wasm`.
+// the app lives under a sub-path (`/findev/`), `/x` is served from `x.html`, unknown paths get
+// `404.html` with status 404 (the SPA fallback), and `.wasm` is served as `application/wasm`.
 // Usage: node scripts/serve-dist.mjs [--dir dist/findev/browser] [--base /findev/] [--port 4300]
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -41,7 +41,8 @@ function resolveFile(pathname) {
   const relative = decodeURIComponent(pathname.slice(base.length));
   const file = normalize(join(root, relative));
   if (file !== root && !file.startsWith(root + sep)) return null;
-  if (!existsSync(file)) return null;
+  // Like Pages: `/settings` is served from `settings.html` when there is no such file.
+  if (!existsSync(file)) return existsSync(`${file}.html`) ? `${file}.html` : null;
   if (statSync(file).isDirectory()) {
     const index = join(file, 'index.html');
     return existsSync(index) ? index : null;

@@ -309,7 +309,10 @@ const server = createServer(async (req, res) => {
       res.writeHead(status, { 'content-type': TYPES[file.split('.').pop()] ?? 'text/plain' });
       res.end(body);
     });
-  await send(200, path).catch(() => send(404, '404.html')).catch(() => {
+  await send(200, path)
+    .catch(() => send(200, path + '.html'))
+    .catch(() => send(404, '404.html'))
+    .catch(() => {
     res.writeHead(404, { 'content-type': 'text/plain' });
     res.end('not found');
   });
@@ -326,6 +329,8 @@ const SHELL =
   '<!doctype html><app-root></app-root><script src="main-ABC.js" type="module"></script>';
 const GOOD_DEPLOY = {
   'index.html': SHELL,
+  'dashboard.html': SHELL,
+  'settings.html': SHELL,
   '404.html': SHELL,
   'main-ABC.js': 'const BUILD = "abc1234";',
   'wasm/producer.wasm': '\0asm\x01\0\0\0',
@@ -561,9 +566,15 @@ pub fn deep(v: &[u32]) -> u32 {
   smokeProbe('smoke-deploy fails when the wasm is missing', 1, 'FAIL  wasm is served', {
     'wasm/producer.wasm': null,
   }),
-  smokeProbe('smoke-deploy fails without the SPA 404.html fallback', 1, 'FAIL  deep link', {
+  smokeProbe('smoke-deploy fails without the SPA 404.html fallback', 1, 'FAIL  unknown URL', {
     '404.html': null,
   }),
+  smokeProbe(
+    'smoke-deploy fails when a route has no page of its own (deep link answers 404)',
+    1,
+    'FAIL  deep link /settings',
+    { 'settings.html': null },
+  ),
   smokeProbe(
     'smoke-deploy fails when the live bundle is an older build',
     1,
