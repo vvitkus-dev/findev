@@ -482,6 +482,21 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 > - **Why (e) has two checks:** the mutation check showed that "rebuild instrument state on every update" passes the 2 × 50 = 1 × 100 test, since both producers stay in lockstep. Only the continuity check catches it.
 > - **Mutation check:** 7 new mutants, 22 in total, all killed.
 
+> **1.5 status (2026-11-18): done.**
+>
+> - **Implementation:** `abi.rs` holds the 6 exports; `lib.rs` re-exports them along with the limits.
+>   - `producer_create` packs the seed as `seed_hi << 32 | seed_lo` and returns `Box::into_raw`, or null.
+>   - `producer_generate` and `producer_destroy` are `unsafe extern "C"`, with a `# Safety` contract and a `// SAFETY:` comment on every `unsafe` block (clippy `undocumented_unsafe_blocks` is denied).
+>   - A compile-time `const` assert ties `RECORD_WORDS_U32` to the model's `RECORD_WORDS`.
+> - **Tests (7):**
+>   - invalid counts give null; a null producer and n of 0 or 1001 give null;
+>   - generating through the ABI is byte-identical to `Producer::new(4, hi<<32|lo)`;
+>   - both seed halves affect the output;
+>   - 10,000 create → generate → destroy cycles;
+>   - `destroy(null)` is a no-op.
+> - **Mutation check:** 3 seed-packing mutants, all killed (25 in total).
+> - **Smoke check from Node on the real `.wasm`:** 22,238 bytes; exports are exactly `memory, abi_version, producer_create, producer_destroy, producer_generate, record_words`; records are valid; invalid inputs return 0. Step 1.6 makes this check permanent (`verify-wasm.mjs`).
+
 **Phase 1 gate:** `npm run test:rust && npm run wasm:build && npm run wasm:verify` exit 0.
 
 ---

@@ -144,6 +144,25 @@ const MUTANTS = [
     from: '            self.bid_cents,\n            self.ask_cents,',
     to: '            self.ask_cents,\n            self.bid_cents,',
   },
+  // Step 1.5 — abi.rs
+  {
+    name: 'seed high half ignored',
+    file: 'src/abi.rs',
+    from: 'let seed = (u64::from(seed_hi) << 32) | u64::from(seed_lo);',
+    to: 'let seed = u64::from(seed_lo);',
+  },
+  {
+    name: 'seed low half ignored',
+    file: 'src/abi.rs',
+    from: 'let seed = (u64::from(seed_hi) << 32) | u64::from(seed_lo);',
+    to: 'let seed = u64::from(seed_hi) << 32;',
+  },
+  {
+    name: 'seed halves swapped',
+    file: 'src/abi.rs',
+    from: 'let seed = (u64::from(seed_hi) << 32) | u64::from(seed_lo);',
+    to: 'let seed = (u64::from(seed_lo) << 32) | u64::from(seed_hi);',
+  },
 ];
 
 const env = {
