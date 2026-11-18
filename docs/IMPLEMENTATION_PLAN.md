@@ -557,6 +557,18 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 > - **Coverage:** 100 % lines and 95.7 % branches. The uncovered branch is the `?? 0` that `noUncheckedIndexedAccess` requires after an explicit bounds check.
 > - **Notional limit:** `notionalCents` is a `number`. It stays exact up to 2^53; at the worst case (20,000 updates/s, all on one instrument) that bound is reached after about 100 hours.
 
+> **2.4 status (2026-11-18): done.**
+>
+> - **`shared/format/market-format.ts`:** the only place values are rounded for display. It uses cached `Intl.NumberFormat` instances.
+>   - `formatCents`: `$101.50`; half-cents round half away from zero; `null` or `NaN` gives `—`.
+>   - `formatImbalance`: `+0.20` / `−0.35` with U+2212, clamped to [−1, 1]. Zero is unsigned, including `-0` and `-0.001`.
+>   - `formatVolume`: `1,234,567`.
+> - **`market-format-pipes.ts`:** the pure pipes `cents`, `imbalance` and `volume`, which only delegate to those functions, following the skill's `pipes.md`.
+>   - Class names keep the `…Pipe` suffix (`CentsPipe`), as `pipes.md` and the plan's check use; a suffixless `FormatCents` would clash with the function `formatCents`.
+> - **Tests (28):** every plan value plus rounding, clamping, signed zero and non-finite input. A TestBed host component renders all three pipes and re-renders when its signals change (zoneless: `whenStable`).
+> - **Coverage:** 100 % on all measures.
+> - **Lint bug found:** the first Angular import in `shared/` exposed a bug in the boundary rule. The glob `**/core` also matched `@angular/core`, so shared code could not use Angular at all. It is fixed with relative-path regexes, and covered by 1 new positive and 2 negative probes (29 lint probes in total).
+
 **Phase 2 gate:** `npx ng test --watch=false` and `npm run test:wasm` exit 0; coverage of `metrics.ts`, `producer-settings.ts`, `market-format.ts` ≥ 95 % lines (`ng test --coverage`).
 
 ---
