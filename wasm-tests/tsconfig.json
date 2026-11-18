@@ -3,6 +3,6 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["**/*.ts", "../src/app/core/producer/engine/**/*.ts"],
-  "exclude": ["../src/**/*.spec.ts"]
+  // Only the Node suite; tsc follows its imports into src/ (worker/DOM-typed files stay out).
+  "include": ["**/*.ts"]
 }

@@ -650,6 +650,19 @@ Behaviour:
 | 3.6  | Slow batch handling.                                                                                                                                                           | spec with fake clock where `generate` "takes" 700 ms at interval 500 ⇒ next delay `0`, never two ticks at same time, no burst after                                                                                                                                                                              |
 | 3.7  | `producer.worker.ts` adapter + `tsconfig.worker.json` (`lib: ["es2022","webworker"]`) + `"webWorkerTsConfig"` in `angular.json`.                                               | `npx ng build` exit 0 and `ls dist/findev/browser/                                                                                                                                                                                                                                                               | grep -E "^worker-.*\.js$"`returns 1 file;`npx tsc -p tsconfig.worker.json --noEmit` exit 0 |
 
+> **3.1 status (2026-11-18): done.**
+>
+> - **Files:**
+>   - `scheduler.model.ts`: `Scheduler`, `Clock`, `TimerHandle`.
+>   - `scheduler.ts`: `realScheduler` (`setTimeout`/`clearTimeout`) and `realClock` (`performance.now`).
+>   - `testing/manual-scheduler.ts`: `ManualScheduler`, which implements both interfaces.
+>     - Tasks run in due-time order (ties in scheduling order), and `now()` equals the running task's due time.
+>     - Tasks scheduled during `advance` run if they fall due within it.
+>     - `elapse(ms)` moves time without running tasks, for step 3.6's slow `generate`.
+>     - A runaway guard throws on an endless 0 ms loop.
+> - **Spec (10 tests):** time order, ties, not-yet-due, cancel, self-rescheduling ticks at 0/500/1000/1500, `elapse`, a negative delay treated as 0, the runaway guard, and the real implementations under Vitest fake timers (no sleeping).
+> - **Side fix:** `wasm-tests/tsconfig.json` now includes only `wasm-tests/**`; `tsc` follows imports. Before, it compiled all of `engine/` with Node types, which would have forced a cast on `setTimeout`.
+
 **Phase 3 gate:** `npx ng test --watch=false` exit 0; total test wall time < 30 s (`time npx ng test --watch=false`) — proves no real-time waits.
 
 ---
