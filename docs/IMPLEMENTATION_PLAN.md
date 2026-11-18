@@ -446,6 +446,27 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 > - **Mutation check:** `npm run test:rust:mutants` applies 7 realistic bugs to a temporary copy; each is killed by exactly the test meant for it. Compile-breaking mutants count as invalid, not killed.
 > - **Truncating casts:** isolated in `low32` and marked `#[expect(..., reason)]`. One `expect` turned out to be unfulfilled, so it was removed; `expect` exists to catch exactly that.
 
+> **1.3 status (2026-11-18): done.**
+>
+> - **Implementation:** `model.rs` keeps per-instrument state and steps it once per update:
+>   - the mid price follows a random walk of at most ±max(1, mid/2000) cents, clamped to [$1, $100,000];
+>   - the spread follows its own walk within [1, max(1, mid/500)] cents;
+>   - book quantities walk ±50 within 0–1000;
+>   - a trade lifts the ask with probability `0.5 + 0.25 × imbalance`, otherwise it hits the bid;
+>   - trade quantity is 1–100.
+> - **Record layout:** `Update` is `#[repr(C)]` with seven `u32` fields (28 bytes, 4-byte alignment), matching the ABI record.
+> - **Tests (8):**
+>   - all invariants over 100,000 steps (shared `test_support::assert_invariants`, reused by the producer tests in 1.4);
+>   - continuity (each step ≤ `max_mid_step(prev)`, more than 100 distinct mids);
+>   - floor (starts at the floor, never goes below it, reaches it at least 10 times);
+>   - spread cap;
+>   - trades on both sides;
+>   - exact `buy_probability` values;
+>   - valid initial state for 1,000 seeds;
+>   - record size and alignment.
+> - **Mutation check:** 8 new mutants (floor removed, spread 0, sells at mid, book unbounded, quantity 0, imbalance sign inverted, 4× mid jumps, buys only), all killed. 15 in total.
+> - **Complexity gate:** the first invariant test scored 8 against the limit of 7, because every `assert!` counts as a branch. I split it into price and quantity helpers.
+
 **Phase 1 gate:** `npm run test:rust && npm run wasm:build && npm run wasm:verify` exit 0.
 
 ---

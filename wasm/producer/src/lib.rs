@@ -5,6 +5,7 @@
 //! linear memory and JavaScript reads them through a `Uint32Array` view.
 //! See `docs/IMPLEMENTATION_PLAN.md` §3.1 for the full ABI contract.
 
+pub mod model;
 pub mod rng;
 
 /// Version of the JS ↔ Wasm ABI. Bump on any change to exports or record layout;
