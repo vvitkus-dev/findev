@@ -69,6 +69,18 @@ Plan §4.0 lists the skill rules this repo applies. The ones most often missed:
 
 Run the guard greps in plan §4.0 ("Control checks for the standard"). They must all return empty.
 
+## Quality gates *(planned, `docs/QUALITY_GATES_PLAN.md`)*
+
+All thresholds are hard failures, and deploy is blocked unless every gate is green.
+- **Errors and warnings:** 0 TS errors (strict + `strictTemplates`); ESLint `--max-warnings 0`.
+- **Complexity:** cyclomatic ≤ 10, cognitive ≤ 15, template cyclomatic ≤ 8.
+- **Size:** function ≤ 60 lines, file ≤ 300 lines.
+- **Duplication and dead code:** jscpd duplication ≤ 3 %; knip finds no unused code.
+- **Coverage:** ≥ 65 % global; ≥ 85 % in `core/producer/**`, `shared/format/**` and Rust.
+- **Testing pyramid:** E2E ≤ 10 % of tests and unit ≥ 60 %. Integration tests are `*.integration.spec.ts`; E2E (Playwright) lives in `e2e/`.
+- **Tests use AAA:** `// Arrange`, `// Act` (exactly once), `// Assert` comments, enforced by the `local/aaa-sections` lint rule. Angular's `await fixture.whenStable()` belongs to the Act section.
+- **Never weaken a gate to make code pass.** Don't lower thresholds, and every `eslint-disable` needs a `-- reason`. Fix the code or split it.
+
 ## Conventions
 
 - Commit author email is `valery.vitkus@gmail.com`, set in the global git config.

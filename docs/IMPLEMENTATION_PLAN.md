@@ -327,6 +327,9 @@ Conventions for every step:
 - A step is **done only when all its control checks pass**; checks are commands with an exact expected result (exit code, test name, grep result). No "looks fine".
 - **Phase gate** = all step checks + the phase gate command listed at the end of the phase.
 - **Angular code is written using the `angular-developer` skill** (`.claude/skills/angular-developer/`, see §4.0). Before any Angular step, load the skill and read the reference files that step names. Each Angular step also has an implicit check: `npx ng build` exits 0 afterwards. The skill requires this after every code generation.
+- **Quality gates** (static analysis, complexity, duplication, coverage 65/85, testing pyramid, AAA, E2E, visual) are specified in `docs/QUALITY_GATES_PLAN.md`. Combined execution order:
+  `Phase 0 → Q0 → Q1 → Phase 1 → Phase 2 (+Q2.1–Q2.3) → Phases 3–6 (+Q2.4 integration tests) → Phase 7 → Q3 → Phase 8 (+Q4) → Phase 9 → Q5 (stretch)`.
+  Where the two plans overlap, the quality plan wins. It replaces step 0.3 (TS flags) with Q0.1, step 0.6 (format) with Q0.11, and the step 8.2 CI layout with Q4.2. The §4.0 grep guards become ESLint rules (Q0.4) and stay as a backup check in CI.
 - Global gate command (defined in Phase 0, grows over time):
   ```bash
   npm run verify   # = lint:types && test:wasm && test && build
