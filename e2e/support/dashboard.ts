@@ -75,3 +75,43 @@ export async function pauseAndSettle(page: Page): Promise<void> {
   // Documented fixed wait (plan §3.1): far longer than a postMessage hop, shorter than a batch.
   await page.waitForTimeout(200);
 }
+
+/** Layout shift so far, split by what moved. */
+export interface LayoutShift {
+  /** Shifts in which an element (box) moved: layout bugs. */
+  readonly elements: number;
+  /** Everything, including live text whose start moves as it changes length. */
+  readonly total: number;
+}
+
+/**
+ * Cumulative layout shift so far (ignoring shifts right after input), from the buffered
+ * `layout-shift` entries. Read it once the page has settled.
+ */
+export function layoutShift(page: Page): Promise<LayoutShift> {
+  return page.evaluate(
+    () =>
+      new Promise<LayoutShift>((resolve) => {
+        interface Shift extends PerformanceEntry {
+          readonly value: number;
+          readonly hadRecentInput: boolean;
+          readonly sources: readonly { readonly node: Node | null }[];
+        }
+        let elements = 0;
+        let total = 0;
+        new PerformanceObserver((list) => {
+          for (const entry of list.getEntries() as Shift[]) {
+            if (entry.hadRecentInput) continue;
+            total += entry.value;
+            if (entry.sources.some((s) => s.node?.nodeType !== Node.TEXT_NODE)) {
+              elements += entry.value;
+            }
+          }
+        }).observe({ type: 'layout-shift', buffered: true });
+        // Buffered entries are delivered in the next task; with none, the callback never runs.
+        setTimeout(() => {
+          resolve({ elements, total });
+        }, 100);
+      }),
+  );
+}

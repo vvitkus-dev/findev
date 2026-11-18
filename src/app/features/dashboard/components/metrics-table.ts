@@ -51,8 +51,11 @@ import { CentsPipe, ImbalancePipe, VolumePipe } from '../../../shared/format/mar
     .scroll {
       overflow-x: auto;
     }
+    /* Fixed layout: column widths never depend on the (changing) numbers, so nothing moves when
+       data arrives. */
     table {
       border-collapse: collapse;
+      table-layout: fixed;
       width: 100%;
       min-width: 36rem;
     }

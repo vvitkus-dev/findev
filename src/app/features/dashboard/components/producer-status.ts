@@ -62,6 +62,11 @@ import { Pill } from '../../../shared/ui/pill';
       gap: 0.5rem 1rem;
       padding-block: 0.5rem;
     }
+    /* Fixed width for the longest label, so the Pause button never moves when the state changes. */
+    app-pill {
+      min-width: 7.5rem;
+      text-align: center;
+    }
     .num {
       font-variant-numeric: tabular-nums;
     }

@@ -7,11 +7,8 @@ footer code {
   visibility: hidden;
 }
 
-/* Masked live values must not move anything: fixed column widths (no auto layout driven by
-   digit counts), and a fixed-width box for the status bar counters (the mask covers the box). */
-app-metrics-table table {
-  table-layout: fixed;
-}
+/* Masked live values must not move anything: a fixed-width box for the status bar counters
+   (the mask covers the box). The table itself already uses a fixed layout. */
 app-producer-status .num {
   display: inline-block;
   width: 16rem;

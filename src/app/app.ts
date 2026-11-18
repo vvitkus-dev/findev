@@ -41,8 +41,12 @@ import { Pill } from './shared/ui/pill';
     </footer>
   `,
   styles: `
+    /* A full-height column: the routed page fills the space between header and footer, so a
+       lazily rendered page never pushes the footer down (no layout shift on load). */
     :host {
-      display: block;
+      display: flex;
+      flex-direction: column;
+      min-height: 100dvh;
       font-family: system-ui, sans-serif;
       color: #1b1b1b;
     }
@@ -75,12 +79,16 @@ import { Pill } from './shared/ui/pill';
     nav a:focus-visible {
       background: #f0f0f0;
     }
+    /* No bold on the active link: a wider label would shift its neighbour when the route activates. */
     nav a.active {
-      font-weight: 600;
+      color: #1a56db;
       box-shadow: inset 0 -3px 0 #1a56db;
     }
+    /* Wide enough for the longest label ("Initializing"), so status changes never move it. */
     .producer-state {
       margin-inline-start: auto;
+      min-width: 7.5rem;
+      text-align: center;
     }
     .banner {
       display: flex;
@@ -99,6 +107,7 @@ import { Pill } from './shared/ui/pill';
       padding-inline: 1rem;
     }
     main {
+      flex: 1;
       padding: 1rem;
     }
     footer {
