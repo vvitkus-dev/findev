@@ -33,7 +33,7 @@
     "deps:age": "node scripts/deps-age.mjs",
     "test:wasm": "vitest run --config wasm-tests/vitest.config.mts",
     "test:ci": "ng test --watch=false --configuration ci",
-    "cov:rust": "node scripts/cargo.mjs llvm-cov --summary-only --fail-under-lines 85 --fail-under-functions 85 && node scripts/cargo.mjs llvm-cov report --lcov --output-path reports/rust.lcov"
+    "cov:rust": "node scripts/cargo.mjs llvm-cov --summary-only --fail-under-lines 85 --fail-under-functions 85 && node -e \"require('node:fs').mkdirSync('reports', {recursive: true})\" && node scripts/cargo.mjs llvm-cov report --lcov --output-path reports/rust.lcov"
   },
   "private": true,
   "packageManager": "npm@11.19.0",
