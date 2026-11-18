@@ -527,6 +527,17 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 | 2.5  | `wasm-generator.ts` (§3.3). Creates fresh `Uint32Array(memory.buffer, ptr, n*7)` after each call; throws `WasmAbiError` on version mismatch, `RangeError` on null pointer. `dispose` idempotent; `generate` after dispose throws. | `wasm-tests/producer.wasm.test.ts` (Node env, real artefact): batch sizes 1/100/1000 → `length===n*7`; invariants on 50 000 updates; fixed seed ⇒ identical output across two factory instances; invalid count throws; ABI mismatch with a stub module throws `WasmAbiError`; `generate` after `dispose` throws                                                                                                                                                                                                                                                                                                                                                                             |
 | 2.6  | Control check that randomness lives in Wasm.                                                                                                                                                                                      | `grep -rnE "Math\.random                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | crypto\.getRandomValues" src/app/core/producer --include=*.ts                                                                                                                                                                                                                               | grep -v spec`→ only`producer-store.ts` (seed source) |
 
+> **2.1 status (2026-11-18): done.**
+>
+> - **Files:** `engine/producer-settings.model.ts` (`ProducerSettings`, `SettingsLimit`, `SettingsError`, the `SettingsValidation` union) and `engine/producer-settings.ts`:
+>   - frozen `DEFAULT_SETTINGS` and `SETTINGS_LIMITS`;
+>   - `settingsFieldError(field, value)`, the per-field rule, so the 6.1 form schema can reuse the same messages;
+>   - `validateSettings(unknown)`, which reports every bad field and ignores unknown keys;
+>   - `nominalRate`.
+> - **Tests (27, AAA):** defaults and limits; all 12 boundary values; `1.5`, `NaN`, `Infinity`, `'5'`, `null` and missing values; multi-field errors with range messages; non-object input; `nominalRate(default) === 200`.
+> - **Coverage:** **100 %** statements, branches, functions and lines.
+> - **Dependency fix found along the way:** installing coverage exposed a supply-chain problem, fixed in a separate commit (`build(deps)`, see the supply-chain gate note in QUALITY_GATES_PLAN).
+
 **Phase 2 gate:** `npx ng test --watch=false` and `npm run test:wasm` exit 0; coverage of `metrics.ts`, `producer-settings.ts`, `market-format.ts` ≥ 95 % lines (`ng test --coverage`).
 
 ---
