@@ -8,14 +8,12 @@ import type { SeedSource, WorkerFactory } from './producer-tokens.model';
  * (lint-enforced); tests provide `{ provide: WORKER_FACTORY, useValue: () => fakeWorker }`.
  */
 export const WORKER_FACTORY = new InjectionToken<WorkerFactory>('producer.workerFactory', {
-  providedIn: 'root',
   factory: () => () =>
     new Worker(new URL('./engine/producer.worker', import.meta.url), { type: 'module' }),
 });
 
 /** Fresh 64-bit seed per run. The only randomness on the TS side (prices are generated in Rust). */
 export const SEED_SOURCE = new InjectionToken<SeedSource>('producer.seedSource', {
-  providedIn: 'root',
   factory: () => () => {
     const [lo = 0, hi = 0] = crypto.getRandomValues(new Uint32Array(2));
     return [lo, hi];
@@ -24,12 +22,10 @@ export const SEED_SOURCE = new InjectionToken<SeedSource>('producer.seedSource',
 
 /** Absolute Wasm URL, resolved against `<base href>` so it works under the `/findev/` sub-path. */
 export const WASM_URL = new InjectionToken<string>('producer.wasmUrl', {
-  providedIn: 'root',
   factory: () => new URL('wasm/producer.wasm', inject(DOCUMENT).baseURI).href,
 });
 
 /** Monotonic clock for the throughput meter; tests use `ManualScheduler`. */
 export const PRODUCER_CLOCK = new InjectionToken<Clock>('producer.clock', {
-  providedIn: 'root',
   factory: () => realClock,
 });

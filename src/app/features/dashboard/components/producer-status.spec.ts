@@ -60,32 +60,30 @@ describe('ProducerStatus', () => {
     expect(button().disabled).toBe(true);
   });
 
-  it('error: an alert with the message and a Retry button that calls store.retry()', async () => {
+  it('shows the state as a toned pill', async () => {
     // Arrange
-    stub.status.set('error');
-    stub.error.set('Could not load the market producer (HTTP 404).');
-    await fixture.whenStable();
-    const alert = host().querySelector('[role="alert"]');
+    stub.status.set('paused');
 
     // Act
-    alert?.querySelector('button')?.click();
     await fixture.whenStable();
 
     // Assert
-    expect(alert?.textContent).toContain('Could not load the market producer (HTTP 404).');
-    expect(alert?.querySelector('button')?.textContent.trim()).toBe('Retry');
-    expect(stub.calls).toEqual(['retry']);
+    const pill = host().querySelector('app-pill');
+    expect(pill?.getAttribute('data-tone')).toBe('warning');
+    expect(pill?.textContent.trim()).toBe('Paused');
   });
 
-  it('no alert while there is no error', async () => {
+  it('leaves errors to the app-wide banner (no second alert on the dashboard)', async () => {
     // Arrange
-    stub.status.set('running');
+    stub.status.set('error');
+    stub.error.set('boom');
 
     // Act
     await fixture.whenStable();
 
     // Assert
     expect(host().querySelector('[role="alert"]')).toBeNull();
+    expect(host().querySelector('[role="status"]')?.textContent.trim()).toBe('Error');
   });
 
   it('shows run, settings, nominal vs measured throughput and batches', async () => {

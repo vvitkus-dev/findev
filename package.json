@@ -31,7 +31,7 @@
     "wasm:build": "node scripts/build-wasm.mjs",
     "wasm:verify": "node scripts/verify-wasm.mjs",
     "deps:age": "node scripts/deps-age.mjs",
-    "test:wasm": "vitest run --config wasm-tests/vitest.config.ts",
+    "test:wasm": "vitest run --config wasm-tests/vitest.config.mts",
     "test:ci": "ng test --watch=false --configuration ci",
     "cov:rust": "node scripts/cargo.mjs llvm-cov --summary-only --fail-under-lines 85 --fail-under-functions 85 && node scripts/cargo.mjs llvm-cov report --lcov --output-path reports/rust.lcov"
   },

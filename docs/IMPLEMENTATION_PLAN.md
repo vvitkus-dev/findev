@@ -172,7 +172,7 @@ Signal Forms rules that apply here (from `.claude/skills/angular-developer/refer
 │   ├── verify-wasm.mjs                 # asserts export names, abi_version, size budget
 │   └── smoke-deploy.mjs                # curls live URL + wasm content-type
 ├── wasm-tests/
-│   ├── vitest.config.ts                # environment: node
+│   ├── vitest.config.mts               # environment: node
 │   └── producer.wasm.test.ts           # runs the compiled module through wasm-generator.ts
 ├── public/wasm/                        # build output (git-ignored)
 ├── tsconfig.worker.json
@@ -590,7 +590,7 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 >   - `test:wasm` runs in `verify:fast` (pre-push, after an incremental `wasm:build`) and in `verify`;
 >   - `wasm-tests/` is type-checked (`lint:types`), linted (`angular.json`) and scanned by knip;
 >   - `@types/node@24.19.2` is pinned with `--before`.
-> - **knip side effect:** adding `wasm-tests/vitest.config.ts` made knip's Vitest plugin ignore the Angular `*.spec.ts` entries, which then showed up as 15 "unused files". Both entry sets are now declared explicitly in `knip.jsonc`.
+> - **knip side effect:** adding `wasm-tests/vitest.config.mts` made knip's Vitest plugin ignore the Angular `*.spec.ts` entries, which then showed up as 15 "unused files". Both entry sets are now declared explicitly in `knip.jsonc`.
 
 **Phase 2 gate:** `npx ng test --watch=false` and `npm run test:wasm` exit 0; coverage of `metrics.ts`, `producer-settings.ts`, `market-format.ts` ≥ 95 % lines (`ng test --coverage`).
 
@@ -819,6 +819,16 @@ Behaviour:
 | 7.1  | Routes: `''`→`dashboard` redirect, `dashboard`, `settings` (`loadComponent` lazy), `**`→`dashboard`. `withComponentInputBinding()` not needed. `app.html` shell: header nav with `RouterLink` + `routerLinkActive`, `<router-outlet />`, status pill visible on both pages. | `app.routes.spec.ts` with `RouterTestingHarness` + real `routes`: `/unknown` → `/dashboard`; `/settings` renders `Settings` |
 | 7.2  | Global init-error banner (from `service.error()`), with Retry.                                                                                                                                                                                                              | spec: service in error ⇒ banner text contains message and Retry triggers `retry()`                                          |
 | 7.3  | Minimal responsive styling (table scrolls horizontally on narrow screens, ≥ 44 px touch targets). Keep component styles < 4 kB budget.                                                                                                                                      | `npx ng build` no budget warnings                                                                                           |
+
+> **7.1–7.3 status (2026-11-18): done.** The shell has a main nav (`RouterLink` + `routerLinkActive` + `aria-current="page"`, 44 px targets), a status pill on every page (new `shared/ui/pill.ts` plus a `STATUS_VIEW` map in core) and an app-wide `role="alert"` banner with Retry (7.2). The dashboard status bar no longer has its own alert, and Pause now sits next to the pill, so counters can't shift it. `InjectionToken`s drop the redundant `providedIn: 'root'` (it is the default), so every §4.0 grep is empty. `wasm-tests/vitest.config.ts` is renamed to `.mts`, which silences Vite's native-loader warning. Gate: 217 unit tests, full `npm run verify` exit 0, `ng build` with 0 warnings (initial 257.7 kB).
+>
+> **Browser check (production build, Chrome DevTools MCP):**
+>
+> - **Nav:** clicking the links switches pages with the correct `aria-current`, the pill shows on both pages, and Pause turns it to Paused/warning. Smallest touch target: 44 px.
+> - **400 px phone view:** no page-level horizontal scroll; the table scrolls inside its own wrapper.
+> - **Init error:** with `producer.wasm` removed there is exactly one `role="alert"` banner ("Could not load the market producer (… HTTP 404)"), the pill reads Error and Pause is disabled. Retry starts run #2 on a new worker, which fails again as expected.
+> - **Console:** empty.
+> - **Cosmetic nit:** the init-error text names the URL twice, once from the engine prefix and once from the loader.
 
 **Phase 7 gate:** `npm run verify` exit 0 **and** every grep in §4.0 "Control checks for the standard" returns empty.
 

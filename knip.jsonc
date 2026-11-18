@@ -10,9 +10,9 @@
     "eslint-rules/**/*.{js,mjs}",
   ],
   // Two Vitest setups: Angular unit tests (`ng test`, no config file) and the Node Wasm suite.
-  // Declared explicitly: once wasm-tests/vitest.config.ts exists, knip would otherwise only see its tests.
+  // Declared explicitly: once wasm-tests/vitest.config.mts exists, knip would otherwise only see its tests.
   "vitest": {
-    "config": ["wasm-tests/vitest.config.ts"],
+    "config": ["wasm-tests/vitest.config.mts"],
     "entry": ["src/**/*.spec.ts", "wasm-tests/**/*.test.ts"],
   },
 }
