@@ -203,6 +203,22 @@ Each step lists **work** and a **deterministic control check** (command → exac
 > - **Gate:** `npm run deps:age` (in `static`) fails on a range, a release under 14 days old, or a lockfile that drifted from the pin. Its failure message names the version to use.
 > - **Probes:** 4 in `quality-probes.mjs`. `DEPS_AGE_NOW` pins the date, so they give the same result forever.
 
+> **Q2.1 + Q2.2 status (2026-11-18): done, in one commit because they share the same two files.**
+>
+> - **Setup:** `angular.json` test target, configuration `ci`, runs through `npm run test:ci`.
+>   - `coverage: true`, with reporters `text-summary`, `lcov`, `json-summary` and `html` writing to `coverage/findev`.
+>   - **`coverageInclude: ["src/app/**/*.ts"]`**, so files that no test loads still count. `app.routes.ts` immediately showed up at 0 %.
+>   - `coverageExclude` per §3.3: specs, `*.model.ts`, `app.config.ts`, `producer.worker.ts`.
+>   - Global floor of 65 % on all four measures.
+>   - `runnerConfig: vitest-base.config.mts` adds the **85 %** per-glob floors for `src/app/core/producer/**` and `src/app/shared/format/**`. The builder's own `coverageThresholds` cannot express globs.
+> - **Results today:** 99.24 % statements, 99.1 % branches, 100 % functions, 99.06 % lines.
+> - **Probes (in `quality-probes.mjs`)** add one throwaway untested file sized so that **exactly one** floor breaks:
+>   - 30 lines in `core/producer` give 72 % against the glob limit, with no global message;
+>   - 200 lines elsewhere give 34 % against the global limit, with no glob message.
+>   - Each probe forbids the other message, so a probe that broke both floors at once (my first draft) counts as a failure.
+> - **Probe deviation:** the plan suggested skipping `metrics.spec.ts`. I add a file instead, so no real file is touched.
+> - **Wiring:** `verify:fast` (pre-push) and `verify` now run `test:ci` in place of `test:unit`.
+
 **Q2 gate:** `npm run test:ci && npm run cov:rust && npm run test:wasm` exit 0.
 
 ### Phase Q3 — E2E, accessibility, visual (attach after Implementation Phase 7)

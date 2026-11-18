@@ -23,6 +23,7 @@ The repo is currently at **Phase 0**: a fresh Angular 22 scaffold. Paths and scr
 npm start                    # ng serve, http://localhost:4200
 npm run build                # production build → dist/findev/browser
 npm run test:unit            # all Angular unit tests once (Vitest)
+npm run test:ci              # unit tests + coverage gates (65 % global, 85 % core/producer + shared/format) → coverage/findev
 npx ng test --watch=false --include src/app/core/producer/engine/metrics.spec.ts   # single file
 npx ng test --watch=false --filter '^Metrics'                                       # by suite/test name regex
 
@@ -41,7 +42,7 @@ node scripts/cargo.mjs test rng::   # any cargo subcommand on the producer crate
 npm run test:rust:mutants    # mutation check: each injected Rust bug must make a test fail (add mutants with new code)
 ```
 
-_(planned)_ These scripts join `verify` as the phases land: `cov:rust` (Q2.3); `test:ci` (coverage thresholds, Q2.1); `e2e` (Playwright, Q3).
+_(planned)_ These scripts join `verify` as the phases land: `cov:rust` (Q2.3); `e2e` (Playwright, Q3).
 
 ## Architecture (target, see plan §1–§3)
 
@@ -86,7 +87,7 @@ All thresholds are hard failures, and deploy is blocked unless every gate is gre
 
 - **On every edit I make:** a Claude Code `PostToolUse` hook (`.claude/settings.json` → `scripts/agent-lint-file.mjs`) formats and lints the file. When it reports ESLint errors, fix them before doing anything else.
 - **On commit:** lint-staged (Prettier + ESLint on staged files) and commitlint. Messages must be conventional commits, and they **must not mention Claude/Anthropic** or carry AI attribution lines.
-- **On push:** `npm run verify:fast` (static + Rust + unit tests).
+- **On push:** `npm run verify:fast` (static + Rust + Wasm suite + unit tests with coverage gates).
 - **Rust (`wasm/producer`):** clippy `all` + `pedantic` are denied, with no `unwrap`/`expect`/`panic` outside tests. Cognitive complexity ≤ 7 and nesting ≤ 4 (calibrated for clippy's scoring); ≤ 60 lines and ≤ 4 arguments per function. Thresholds live in `wasm/producer/clippy.toml`.
 - **In CI:** everything above plus coverage, E2E and the pyramid check. _(planned, Q4)_
 
@@ -98,7 +99,7 @@ The architecture rules are lint rules, so `eslint-disable` can't switch them off
 - **Complexity:** cyclomatic ≤ 10, cognitive ≤ 15, template cyclomatic ≤ 8.
 - **Size:** function ≤ 60 lines, file ≤ 300 lines.
 - **Duplication and dead code:** jscpd duplication ≤ 3 %; knip finds no unused code.
-- **Coverage:** ≥ 65 % global; ≥ 85 % in `core/producer/**`, `shared/format/**` and Rust.
+- **Coverage:** ≥ 65 % global; ≥ 85 % in `core/producer/**`, `shared/format/**` and Rust. Global floor: `angular.json` → `test.configurations.ci`; critical-path globs: `vitest-base.config.mts`. Untested files count (`coverageInclude: src/app/**`), so a new file needs its spec.
 - **Testing pyramid:** E2E ≤ 10 % of tests and unit ≥ 60 %. Integration tests are `*.integration.spec.ts`; E2E (Playwright) lives in `e2e/`.
 - **Tests use AAA:** `// Arrange`, `// Act` (exactly once), `// Assert` comments, enforced by the `local/aaa-sections` lint rule. Angular's `await fixture.whenStable()` belongs to the Act section.
 - **Never weaken a gate to make code pass.** Don't lower thresholds, and every `eslint-disable` needs a `-- reason`. Fix the code or split it.

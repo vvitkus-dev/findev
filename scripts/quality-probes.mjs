@@ -135,6 +135,37 @@ const depsProbe = (name, expectCode, expectText, args) => ({
   },
 });
 
+/** One exported function with `n` statements that no test calls (1 function, n + 1 statements). */
+const uncoveredCode = (n) =>
+  `export function probe(x: number): number {\n  let y = x;\n${'  y += 1;\n'.repeat(n)}  return y;\n}\n`;
+
+/**
+ * Runs `npm run test:ci` with one extra untested file. Passes when the run fails with a
+ * threshold message mentioning `expect` and no threshold message mentioning `forbid`.
+ */
+const coverageProbe = (name, file, statements, expect, forbid) => ({
+  name,
+  run: () => {
+    const r = withFiles({ [file]: uncoveredCode(statements) }, () =>
+      run('npm', ['run', '-s', 'test:ci']),
+    );
+    // eslint-disable-next-line no-control-regex -- strip ANSI colour codes from the runner output
+    const out = r.out.replace(/\x1b\[[0-9;]*m/g, '');
+    const misses = out
+      .split('\n')
+      .filter((l) => l.includes('does not meet'))
+      .map((l) => l.trim());
+    const ok =
+      r.code !== 0 &&
+      misses.some((l) => l.includes(expect)) &&
+      !misses.some((l) => l.includes(forbid));
+    return {
+      ok,
+      detail: `exit=${r.code}\n        ${misses.join('\n        ') || '(no threshold message)'}`,
+    };
+  },
+});
+
 const CLIPPY = ['clippy', '--all-targets', '--message-format', 'json', '--', '-D', 'warnings'];
 /** Lint codes (e.g. `clippy::unwrap_used`) reported in cargo's JSON message stream. */
 const lintCodes = (out) =>
@@ -348,6 +379,24 @@ pub fn deep(v: &[u32]) -> u32 {
     { vitest: '5.1.0' },
     '2026-11-17T00:00:00Z',
   ]),
+  // Coverage gates (Q2.1 global 65 %, Q2.2 critical paths 85 %). Untested files must count.
+  // Sized so exactly ONE floor breaks. Today core/producer has ~83 covered lines and the app ~107:
+  // +30 uncovered core lines → core ≈ 72 % (< 85), global ≈ 76 % (> 65). The second probe adds
+  // 200 lines outside core → global < 65 %, core untouched. Re-size if the codebase grows a lot.
+  coverageProbe(
+    'coverage: untested core/producer code breaks only the 85 % critical-path floor',
+    'src/app/core/producer/__quality_probe_uncovered.ts',
+    30,
+    'src/app/core/producer/**',
+    'global threshold',
+  ),
+  coverageProbe(
+    'coverage: untested code elsewhere breaks only the 65 % global floor',
+    'src/app/__quality_probes__/uncovered.ts',
+    200,
+    'global threshold',
+    'src/app/core/producer/**',
+  ),
 ];
 
 let failed = 0;

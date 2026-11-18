@@ -69,7 +69,27 @@
           "defaultConfiguration": "development"
         },
         "test": {
-          "builder": "@angular/build:unit-test"
+          "builder": "@angular/build:unit-test",
+          "configurations": {
+            "ci": {
+              "coverage": true,
+              "runnerConfig": "vitest-base.config.mts",
+              "coverageInclude": ["src/app/**/*.ts"],
+              "coverageExclude": [
+                "src/app/**/*.spec.ts",
+                "src/app/**/*.model.ts",
+                "src/app/app.config.ts",
+                "src/app/**/producer.worker.ts"
+              ],
+              "coverageReporters": ["text-summary", "lcov", "json-summary", "html"],
+              "coverageThresholds": {
+                "statements": 65,
+                "branches": 65,
+                "functions": 65,
+                "lines": 65
+              }
+            }
+          }
         },
         "lint": {
           "builder": "@angular-eslint/builder:lint",
