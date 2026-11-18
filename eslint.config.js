@@ -7,6 +7,7 @@ const angular = require('angular-eslint');
 const sonarjs = require('eslint-plugin-sonarjs');
 const vitest = require('@vitest/eslint-plugin');
 const aaaSections = require('./eslint-rules/aaa-sections.js');
+const eslintComments = require('@eslint-community/eslint-plugin-eslint-comments');
 
 const local = { rules: { 'aaa-sections': aaaSections } };
 
@@ -175,6 +176,27 @@ module.exports = defineConfig([
     rules: {
       'max-lines-per-function': 'off',
       'max-lines': ['error', { max: 600, skipBlankLines: true, skipComments: true }],
+    },
+  },
+
+  // ---- Suppression discipline (Q1.5) --------------------------------------
+  // Every disable needs `-- reason`; blanket disables are banned; architecture rules can't be disabled.
+  {
+    files: ['**/*.ts'],
+    plugins: { '@eslint-community/eslint-comments': eslintComments },
+    linterOptions: { reportUnusedDisableDirectives: 'error' },
+    rules: {
+      '@eslint-community/eslint-comments/require-description': ['error', { ignore: [] }],
+      '@eslint-community/eslint-comments/no-unlimited-disable': 'error',
+      '@eslint-community/eslint-comments/disable-enable-pair': 'error',
+      '@eslint-community/eslint-comments/no-restricted-disable': [
+        'error',
+        'no-restricted-imports',
+        'no-restricted-syntax',
+        'local/aaa-sections',
+        'vitest/no-focused-tests',
+        'vitest/no-disabled-tests',
+      ],
     },
   },
 

@@ -20,21 +20,21 @@ The repo is currently at **Phase 0**: a fresh Angular 22 scaffold. Paths and scr
 ## Commands
 
 ```bash
-npm start                                   # ng serve, http://localhost:4200
-npm run build                               # production build → dist/findev/browser
-npx ng test --watch=false                   # all Angular unit tests (Vitest)
-npx ng test --watch=false --include src/app/core/producer/metrics.spec.ts   # single file
-npx ng test --watch=false --filter '^Metrics'                                # by suite/test name regex
-npx ng test --watch=false --coverage
+npm start                    # ng serve, http://localhost:4200
+npm run build                # production build → dist/findev/browser
+npm run test:unit            # all Angular unit tests once (Vitest)
+npx ng test --watch=false --include src/app/core/producer/engine/metrics.spec.ts   # single file
+npx ng test --watch=false --filter '^Metrics'                                       # by suite/test name regex
+
+npm run verify:fast          # static + unit tests (pre-push hook runs this)
+npm run verify               # full gate: static + quality self-test + unit tests + build
+npm run static               # format:check, lint, lint:types, dup (jscpd), deadcode (knip), audit
+npm run lint                 # ng lint --max-warnings 0 (TS + templates)
+npm run format               # prettier --write .
+npm run quality:self-test    # proves the gates still fire: lint/quality/hook probes + AAA RuleTester
 ```
 
-_(planned, step 0.5)_ These package scripts are defined in Phase 0. Use them once they exist:
-
-- `npm run wasm:build`: cargo release build, then copies the output to `public/wasm/producer.wasm` (git-ignored). `prestart` and `prebuild` run it.
-- `npm run wasm:verify`: checks the export names, `abi_version`, and the size budget.
-- `npm run test:rust`: `cargo test` + `clippy -D warnings` + `fmt --check` for `wasm/producer`.
-- `npm run test:wasm`: Vitest in a **Node** environment (`wasm-tests/vitest.config.ts`) that runs the _compiled_ `.wasm` through the TS adapter.
-- `npm run verify`: the global gate (type-check, Rust tests, Wasm tests, Angular tests, build). It must pass before any push.
+_(planned)_ These scripts join `verify` as the phases land: `wasm:build` and `wasm:verify` (step 1.6); `test:rust` (cargo test + clippy + fmt) and `cov:rust` (step 1.1 / Q2.3); `test:wasm` (Node Vitest on the compiled `.wasm`, step 2.5); `test:ci` (coverage thresholds, Q2.1); `e2e` (Playwright, Q3).
 
 ## Architecture (target, see plan §1–§3)
 
@@ -71,11 +71,20 @@ Plan §4.0 lists the skill rules this repo applies. The ones most often missed:
 - **Tests:** zoneless Act → `await fixture.whenStable()` → Assert. Never call `fixture.detectChanges()` or `markForCheck()`. Set inputs with `fixture.componentRef.setInput()`. Use `RouterTestingHarness` with the real routes; don't mock the Router.
 - **Scaffold** with `ng generate …`, and run `npx ng build` after every Angular change. The skill requires a clean build before you continue.
 
-Run the guard greps in plan §4.0 ("Control checks for the standard"). They must all return empty.
+The plan §4.0 guard greps are now ESLint rules (Q0.4), so `npm run lint` covers them.
 
-## Quality gates _(planned, `docs/QUALITY_GATES_PLAN.md`)_
+## Quality gates (`docs/QUALITY_GATES_PLAN.md`)
 
-All thresholds are hard failures, and deploy is blocked unless every gate is green.
+All thresholds are hard failures, and deploy is blocked unless every gate is green. Where each one runs:
+
+- **On every edit I make:** a Claude Code `PostToolUse` hook (`.claude/settings.json` → `scripts/agent-lint-file.mjs`) formats and lints the file. When it reports ESLint errors, fix them before doing anything else.
+- **On commit:** lint-staged (Prettier + ESLint on staged files) and commitlint. Messages must be conventional commits, and they **must not mention Claude/Anthropic** or carry AI attribution lines.
+- **On push:** `npm run verify:fast`.
+- **In CI:** everything above plus coverage, E2E and the pyramid check. _(planned, Q4)_
+
+Never bypass these with `--no-verify`.
+
+The architecture rules are lint rules, so `eslint-disable` can't switch them off: import boundaries, `engine/` staying framework-free, the bans on `Math.random` / `@Injectable` / Reactive Forms / `detectChanges`, the AAA rule, and `.only`/`.skip`. When you add a new gate rule, add a probe to `scripts/lint-probes.mjs` (or to `quality-probes.mjs` / `hook-probes.mjs`) that proves it fires.
 
 - **Errors and warnings:** 0 TS errors (strict + `strictTemplates`); ESLint `--max-warnings 0`.
 - **Complexity:** cyclomatic ≤ 10, cognitive ≤ 15, template cyclomatic ≤ 8.

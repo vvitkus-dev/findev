@@ -143,6 +143,35 @@ const PROBES = [
     code: "describe('d', () => {\n  it('x', () => {\n    expect(1).toBe(1);\n  });\n});\n",
     expect: ['local/aaa-sections'],
   },
+  // Q1.5 — suppression discipline
+  {
+    name: 'eslint-disable without a reason',
+    file: P + 'disable-noreason.ts',
+    code: '// eslint-disable-next-line @typescript-eslint/no-explicit-any\nexport const x: any = 1;\n',
+    expect: ['@eslint-community/eslint-comments/require-description'],
+  },
+  {
+    name: 'blanket eslint-disable banned',
+    file: P + 'disable-all.ts',
+    code: '/* eslint-disable -- whatever */\nexport const x = 1;\n',
+    expect: ['@eslint-community/eslint-comments/no-unlimited-disable'],
+  },
+  {
+    name: 'architecture rules cannot be disabled',
+    file: 'core/__probe_disable.ts',
+    code: '// eslint-disable-next-line no-restricted-syntax -- I really want it\nexport const r = Math.random();\n',
+    expect: ['@eslint-community/eslint-comments/no-restricted-disable'],
+  },
+  {
+    name: 'ALLOWED: justified disable of a normal rule',
+    file: P + 'disable-ok.ts',
+    code: '// eslint-disable-next-line @typescript-eslint/no-explicit-any -- third-party typing gap\nexport const x: any = 1;\n',
+    expect: [],
+    forbid: [
+      '@eslint-community/eslint-comments/require-description',
+      '@typescript-eslint/no-explicit-any',
+    ],
+  },
   // Negative probes — legitimate code must stay clean (no false positives)
   {
     name: 'ALLOWED: feature imports its own subfolder and core',
