@@ -31,20 +31,22 @@ Optional extras: `npm run e2e` runs Playwright end-to-end tests (needs
 
 ```mermaid
 flowchart LR
-  subgraph Worker["Web Worker"]
+  subgraph Worker["Web Worker (one per app)"]
     Wasm["producer.wasm (Rust)<br/>seeded RNG · price and book model"]
-    Engine["ProducerEngine<br/>timer · running totals"]
-    Engine -- "generate(n)" --> Wasm
-    Wasm -- "n records in Wasm memory" --> Engine
+    Engine["ProducerEngine<br/>self-rescheduling timer · running totals"]
+    Engine -- "producer_create / producer_generate(n) / producer_destroy" --> Wasm
+    Wasm -- "n × 7 u32 records in Wasm memory" --> Engine
   end
   subgraph Main["Main thread (Angular)"]
-    Store["ProducerStore<br/>runId check · metric formulas"]
+    Store["ProducerStore<br/>runId check · deriveMetrics · throughput meter"]
+    Pacer["RepaintPacer<br/>≤ 10 repaints/s when the device can't keep up"]
     Pages["Dashboard / Settings"]
-    Store -- "rows, status (signals)" --> Pages
-    Pages -- "apply / pause / resume" --> Store
+    Store --> Pacer
+    Pacer -- "rows, status (signals)" --> Pages
+    Pages -- "apply / pause / resume / retry" --> Store
   end
-  Store -- "start {runId, settings, seed} / pause / resume" --> Engine
-  Engine -- "one snapshot per batch {runId, totals}" --> Store
+  Store -- "init {wasmUrl} · start {runId, settings, seed} · pause / resume · dispose" --> Engine
+  Engine -- "ready · snapshot {runId, seq, totals, stats} · status · error" --> Store
 ```
 
 - **Wasm (`wasm/producer`, Rust):** all randomness and price logic. It keeps each instrument's
