@@ -7,3 +7,4 @@ package-lock.json
 skills-lock.json
 .claude/skills
 wasm/producer/target
+.claude/settings.local.json
