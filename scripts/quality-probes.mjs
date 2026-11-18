@@ -7,6 +7,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -139,13 +140,56 @@ const depsProbe = (name, expectCode, expectText, args) => ({
 const uncoveredCode = (n) =>
   `export function probe(x: number): number {\n  let y = x;\n${'  y += 1;\n'.repeat(n)}  return y;\n}\n`;
 
+const COVERAGE_METRICS = ['statements', 'lines'];
+let baseline;
+/**
+ * Covered/total statements and lines, app-wide and under core/producer, from one clean
+ * `test:ci` run (memoised). Probes size their untested code from this, so they keep breaking
+ * exactly one floor however much the codebase grows.
+ */
+function coverageBaseline() {
+  if (baseline) return baseline;
+  const r = run('npm', ['run', '-s', 'test:ci']);
+  if (r.code !== 0) throw new Error(`coverage baseline: test:ci failed (exit ${r.code})`);
+  const summary = JSON.parse(readFileSync('coverage/findev/coverage-summary.json', 'utf8'));
+  const sum = (keep) => {
+    const t = Object.fromEntries(COVERAGE_METRICS.map((k) => [k, { covered: 0, total: 0 }]));
+    for (const [file, m] of Object.entries(summary)) {
+      if (file === 'total' || !keep(file)) continue;
+      for (const k of COVERAGE_METRICS) {
+        t[k].covered += m[k].covered;
+        t[k].total += m[k].total;
+      }
+    }
+    return t;
+  };
+  baseline = { all: sum(() => true), core: sum((f) => f.includes('/src/app/core/producer/')) };
+  return baseline;
+}
+
+/** Uncovered statements that push `scope` to `pct` % (the probe file adds about n + 2). */
+const statementsToReach = (scope, pct) =>
+  Math.max(...COVERAGE_METRICS.map((k) => scope[k].covered / (pct / 100) - scope[k].total));
+
+/** Break core/producer (85 %) with margin (aim 80 %) while global stays above 65 % (aim 70 %). */
+const coreOnlySize = (b) => {
+  const lo = statementsToReach(b.core, 80);
+  const hi = Math.min(...COVERAGE_METRICS.map((k) => b.all[k].covered / 0.7 - b.all[k].total));
+  if (lo >= hi) throw new Error(`coverage probe cannot isolate the core floor (need ${lo}..${hi})`);
+  return Math.ceil((lo + hi) / 2);
+};
+
+/** Break the 65 % global floor (aim 55 %); outside core, so core/producer is untouched. */
+const globalOnlySize = (b) => Math.ceil(statementsToReach(b.all, 55));
+
 /**
  * Runs `npm run test:ci` with one extra untested file. Passes when the run fails with a
  * threshold message mentioning `expect` and no threshold message mentioning `forbid`.
  */
-const coverageProbe = (name, file, statements, expect, forbid) => ({
+const coverageProbe = (name, file, size, expect, forbid) => ({
   name,
   run: () => {
+    const statements = size(coverageBaseline());
     const r = withFiles({ [file]: uncoveredCode(statements) }, () =>
       run('npm', ['run', '-s', 'test:ci']),
     );
@@ -161,7 +205,7 @@ const coverageProbe = (name, file, statements, expect, forbid) => ({
       !misses.some((l) => l.includes(forbid));
     return {
       ok,
-      detail: `exit=${r.code}\n        ${misses.join('\n        ') || '(no threshold message)'}`,
+      detail: `n=${statements} exit=${r.code}\n        ${misses.join('\n        ') || '(no threshold message)'}`,
     };
   },
 });
@@ -202,8 +246,26 @@ const clippyProbe = (name, lint, code) => ({
   },
 });
 
+/** Lines jscpd measures today (non-spec .ts/.html/.scss under src). */
+function sourceLines(dir = 'src') {
+  let n = 0;
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, e.name);
+    if (e.isDirectory()) n += sourceLines(path);
+    else if (/\.(ts|html|scss)$/.test(e.name) && !e.name.endsWith('.spec.ts')) {
+      n += readFileSync(path, 'utf8').split('\n').length;
+    }
+  }
+  return n;
+}
+
+/** Extra body lines so the copied block stays ≈ 10 % of the code (threshold 3 %) as it grows. */
+const padding = (lines) =>
+  Array.from({ length: lines }, (_, i) => `  total = (total * 31 + ${i}) % 1_000_003;\n`).join('');
+
 const duplicatedFn = (
   name,
+  extra = 0,
 ) => `export function ${name}(values: readonly number[]): { min: number; max: number; mean: number } {
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
@@ -217,7 +279,7 @@ const duplicatedFn = (
     }
     total += value;
   }
-  const mean = values.length === 0 ? 0 : total / values.length;
+${padding(extra)}  const mean = values.length === 0 ? 0 : total / values.length;
   const spread = max - min;
   const normalized = values.map((v) => (spread === 0 ? 0 : (v - min) / spread));
   const above = normalized.filter((v) => v > 0.5).length;
@@ -227,6 +289,9 @@ const duplicatedFn = (
 }
 `;
 
+let dupLines;
+const dupPadding = () => (dupLines ??= Math.ceil(sourceLines() * 0.05));
+
 /** @type {{ name: string, run: () => { ok: boolean, detail: string } }[]} */
 const PROBES = [
   // Q0.7 — duplication
@@ -235,8 +300,8 @@ const PROBES = [
     run: () =>
       withFiles(
         {
-          'src/app/__quality_probes__/dup-a.ts': duplicatedFn('statsA'),
-          'src/app/__quality_probes__/dup-b.ts': duplicatedFn('statsB'),
+          'src/app/__quality_probes__/dup-a.ts': duplicatedFn('statsA', dupPadding()),
+          'src/app/__quality_probes__/dup-b.ts': duplicatedFn('statsB', dupPadding()),
         },
         () => {
           const r = run('npx', [
@@ -413,20 +478,18 @@ pub fn deep(v: &[u32]) -> u32 {
     },
   },
   // Coverage gates (Q2.1 global 65 %, Q2.2 critical paths 85 %). Untested files must count.
-  // Sized so exactly ONE floor breaks. Today core/producer has ~83 covered lines and the app ~107:
-  // +30 uncovered core lines → core ≈ 72 % (< 85), global ≈ 76 % (> 65). The second probe adds
-  // 200 lines outside core → global < 65 %, core untouched. Re-size if the codebase grows a lot.
+  // Each probe is sized from a clean baseline run so exactly ONE floor breaks at any codebase size.
   coverageProbe(
     'coverage: untested core/producer code breaks only the 85 % critical-path floor',
     'src/app/core/producer/__quality_probe_uncovered.ts',
-    30,
+    coreOnlySize,
     'src/app/core/producer/**',
     'global threshold',
   ),
   coverageProbe(
     'coverage: untested code elsewhere breaks only the 65 % global floor',
     'src/app/__quality_probes__/uncovered.ts',
-    200,
+    globalOnlySize,
     'global threshold',
     'src/app/core/producer/**',
   ),
