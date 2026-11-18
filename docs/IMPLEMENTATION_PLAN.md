@@ -610,6 +610,18 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 
 ---
 
+> **Browser check (2026-11-18, Chrome DevTools MCP 1.12.0, Chrome 157, production build):**
+>
+> - **The shell renders:** the console is clean and all requests return 200. `.wasm` is served as `application/wasm` by both `ng serve` and a static server.
+> - **Wasm in Chrome:** it instantiates by streaming in 4 ms and runs at about 11 M updates/s; a maximum batch takes 0.09 ms of its 50 ms budget, with 0 invariant violations.
+> - **Warm desktop LCP:** 39–86 ms.
+> - **Fixes applied:**
+>   - removed the empty global `styles.scss`, which was a render-blocking request (Chrome estimated about 560 ms of savings on Slow 4G);
+>   - added `<meta name="description">`.
+> - **Results after the fixes:** Lighthouse Accessibility, Best Practices and SEO are all **100**.
+> - **The predicted saving did not happen:** throttled LCP stayed about 2.28 s with 4× CPU on Slow 4G. The CSS downloaded in parallel with `main.js`, and LCP waits for JS download plus bootstrap. The real lever is the bundle (190 kB raw, 52 kB transferred).
+> - **Follow-up:** once Phases 3–5 exist, trace the live dashboard at maximum settings: long tasks, INP of Pause, and a flat heap.
+
 ### Phase 3 — Worker-side engine
 
 **Goal:** a pure-TS state machine handling commands, scheduling, run isolation, cleanup; worker file is a ≤ 30-line adapter.
