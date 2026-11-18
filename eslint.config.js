@@ -5,6 +5,7 @@ const { defineConfig } = require('eslint/config');
 const tseslint = require('typescript-eslint');
 const angular = require('angular-eslint');
 const sonarjs = require('eslint-plugin-sonarjs');
+const vitest = require('@vitest/eslint-plugin');
 
 // ---- Architecture & API bans (Q0.4) ---------------------------------------
 // Flat config REPLACES (not merges) a rule set in an earlier block, so every block
@@ -125,6 +126,28 @@ module.exports = defineConfig([
   {
     files: ['**/*.spec.ts', '**/*.test.ts'],
     rules: { 'no-restricted-syntax': restrictedSyntax(BAN_MATH_RANDOM, BAN_MANUAL_CD) },
+  },
+
+  // ---- Test hygiene (Q0.5) ------------------------------------------------
+  {
+    files: ['**/*.spec.ts', '**/*.test.ts'],
+    plugins: { vitest },
+    rules: {
+      ...vitest.configs.recommended.rules,
+      'vitest/no-focused-tests': 'error',
+      'vitest/no-disabled-tests': 'error',
+      'vitest/no-commented-out-tests': 'error',
+      'vitest/expect-expect': 'error',
+      'vitest/valid-expect': 'error',
+      'vitest/no-identical-title': 'error',
+      'vitest/no-conditional-in-test': 'error',
+      'vitest/no-conditional-expect': 'error',
+      'vitest/no-standalone-expect': 'error',
+      'vitest/require-top-level-describe': 'error',
+      'vitest/max-nested-describe': ['error', { max: 2 }],
+      'vitest/consistent-test-it': ['error', { fn: 'it', withinDescribe: 'it' }],
+      'vitest/prefer-to-be': 'error',
+    },
   },
 
   // ---- Complexity & size limits (Q0.3) -----------------------------------

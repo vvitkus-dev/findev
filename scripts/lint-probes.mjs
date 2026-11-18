@@ -110,6 +110,31 @@ const PROBES = [
     code: "declare const fixture: { detectChanges(): void };\nit('x', () => {\n  fixture.detectChanges();\n  expect(1).toBe(1);\n});\n",
     expect: ['no-restricted-syntax'],
   },
+  // Q0.5 — test hygiene
+  {
+    name: 'focused test (it.only) banned',
+    file: P + 'only.spec.ts',
+    code: "describe('d', () => {\n  it.only('x', () => {\n    expect(1).toBe(1);\n  });\n});\n",
+    expect: ['vitest/no-focused-tests'],
+  },
+  {
+    name: 'skipped test banned',
+    file: P + 'skip.spec.ts',
+    code: "describe('d', () => {\n  it.skip('x', () => {\n    expect(1).toBe(1);\n  });\n});\n",
+    expect: ['vitest/no-disabled-tests'],
+  },
+  {
+    name: 'test without assertion',
+    file: P + 'noexpect.spec.ts',
+    code: "describe('d', () => {\n  it('x', () => {\n    const a = 1;\n    void a;\n  });\n});\n",
+    expect: ['vitest/expect-expect'],
+  },
+  {
+    name: 'conditional logic in test',
+    file: P + 'cond.spec.ts',
+    code: "describe('d', () => {\n  it('x', () => {\n    const v = Number('1');\n    if (v > 0) {\n      expect(v).toBe(1);\n    }\n  });\n});\n",
+    expect: ['vitest/no-conditional-in-test'],
+  },
   // Negative probes — legitimate code must stay clean (no false positives)
   {
     name: 'ALLOWED: feature imports its own subfolder and core',
