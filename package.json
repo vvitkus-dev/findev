@@ -15,7 +15,13 @@
     "quality:probes": "node scripts/quality-probes.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "deadcode": "knip --no-progress"
+    "deadcode": "knip --no-progress",
+    "audit": "npm audit --omit=dev --audit-level=high",
+    "test:unit": "ng test --watch=false",
+    "static": "npm run format:check && npm run lint && npm run lint:types && npm run dup && npm run deadcode && npm run audit",
+    "quality:self-test": "npm run lint:probes && npm run test:lint-rules && npm run quality:probes",
+    "verify:fast": "npm run static && npm run test:unit",
+    "verify": "npm run static && npm run quality:self-test && npm run test:unit && npm run build"
   },
   "private": true,
   "packageManager": "npm@11.19.0",
