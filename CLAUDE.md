@@ -37,13 +37,13 @@ npx ng test --watch=false --coverage
 
 ## Architecture (target, see plan §1–§3)
 
-Data flow: `Rust producer (Wasm)` → `ProducerEngine in worker (TS)` → snapshots via `postMessage` → `ProducerService` (root, signals) → pages.
+Data flow: `Rust producer (Wasm)` → `ProducerEngine in worker (TS)` → snapshots via `postMessage` → `ProducerStore` (`@Service()` singleton, signals) → pages.
 
 - **Wasm ABI is raw C ABI, not wasm-bindgen.** `producer_generate` writes `n` records of 7 little-endian `u32` words into Wasm memory: `[instrument, priceCents, tradeQty, bidCents, askCents, bidQty, askQty]`. JS reads them through a `Uint32Array` view. That view **must be re-created after every `generate` call**, because memory growth detaches the old buffer. The exports are fixed and checked by `scripts/verify-wasm.mjs`. Bump `abi_version` on any layout change.
-- **All randomness and price logic lives in Rust** (seeded SplitMix64 → PCG32, no crates). The only thing TS does is produce the seed, via `crypto.getRandomValues` in `ProducerService`. Producer code must never call `Math.random`.
-- **Metrics are split.** The worker accumulates raw sums with `applyBatch`: last price, latest quote/book, `volume = Σqty`, `notionalCents = Σprice×qty`. The main thread calculates spread, VWAP and imbalance with the pure `deriveMetrics`, which returns `null` when a denominator is zero. All prices stay as integer cents, rounded only in the formatters. No event history is kept; state is O(instruments).
-- **Run isolation.** Every command and snapshot carries a `runId`. Both the worker and `ProducerService` drop messages whose `runId` does not match. **Apply** increments `runId`, resets rows synchronously, and the worker destroys the old Wasm generator before creating the new one.
-- **One worker for the whole app.** It is created once in `ProducerService.boot()` through the `WORKER_FACTORY` token and terminated when the root injector is destroyed. Navigation must never create a worker; `new Worker` appears only in `worker-factory.ts`. The worker is re-created only by `retry()` after a fatal error.
+- **All randomness and price logic lives in Rust** (seeded SplitMix64 → PCG32, no crates). The only thing TS does is produce the seed, via `crypto.getRandomValues` in `ProducerStore`. Producer code must never call `Math.random`.
+- **Metrics are split.** The worker accumulates raw sums with `applyBatch`: last price, latest quote/book, `volume = Σqty`, `notionalCents = Σprice×qty`. The main thread calculates spread, VWAP and imbalance with the pure `deriveMetrics`, which returns `null` when a denominator is zero. All prices stay as integer cents, rounded only in `shared/format/market-format.ts` (pure functions wrapped by pure pipes). No event history is kept; state is O(instruments).
+- **Run isolation.** Every command and snapshot carries a `runId`. Both the worker and `ProducerStore` drop messages whose `runId` does not match. **Apply** increments `runId`, resets rows synchronously, and the worker destroys the old Wasm generator before creating the new one.
+- **One worker for the whole app.** It is created once in `ProducerStore.boot()` through the `WORKER_FACTORY` token and terminated when the root injector is destroyed. Navigation must never create a worker; `new Worker` appears only in the `WORKER_FACTORY` default in `producer-tokens.ts`. The worker is re-created only by `retry()` after a fatal error.
 - **Testability through injection.** `ProducerEngine` is pure TS and takes injected `loadFactory`, `Scheduler`, `Clock` and `post`. `producer.worker.ts` is only a thin adapter around it. Tests use `ManualScheduler`, a fake generator factory, `FakeWorker` and fixed seeds. **Tests must never sleep or wait on real time.**
 - **Scheduling.** The worker reschedules itself with `setTimeout`, delayed by `max(0, interval − elapsed)`. There is no `setInterval` and no catch-up after a pause or a slow batch. A batch generated before Pause but delivered after it is still accepted, because it has the same `runId`.
 - **Wasm URL.** The main thread resolves it from `document.baseURI` and sends it in the `init` message, because the app is deployed under a `/<repo>/` sub-path.
@@ -55,8 +55,20 @@ GitHub Pages via GitHub Actions (`.github/workflows/ci-deploy.yml`):
 - **Only pushes to `main`** deploy. The deploy build runs `ng build --base-href "/findev/"` and copies `index.html` to `404.html` as the SPA fallback.
 - Repo: https://github.com/vvitkus-dev/findev. A push to `main` redeploys the live demo; there are no manual deploy steps.
 
+## Angular coding: always use the `angular-developer` skill
+
+**Before writing or changing any Angular code** (components, services, DI, signals, forms, routing, pipes, styles, Angular tests), invoke the project skill `angular-developer` (`.claude/skills/angular-developer/SKILL.md`) and read the `references/*.md` files the task needs. The skill is Angular's official agent skill (https://angular.dev/ai/agent-skills). It is pinned in `skills-lock.json`; restore it with `npx skills experimental_install` and update it with `npx skills update angular-developer -p`. Don't edit the skill files by hand.
+
+Plan §4.0 lists the skill rules this repo applies. The ones most often missed:
+- **Naming is "Intent over Role"** (v20+, matching the scaffold's `app.ts`/`class App`): `metrics-table.ts` → `class MetricsTable`, `producer-store.ts` → `class ProducerStore`. No `.component.ts`/`.service.ts` suffixes and no `Component`/`Service` class suffixes. Types go in `*.model.ts`.
+- **Services:** `@Service()`, not `@Injectable({providedIn:'root'})`. Private writable signals are exposed with `.asReadonly()` or `computed()`. Use `inject()`.
+- **Components:** OnPush is the v22 default, so don't set `changeDetection`. Use `input()`/`output()`, `@if/@for/@switch` (`track` is required), and self-closing tags. No expensive calls in templates: use `computed()` or pure pipes.
+- **Forms:** use **Signal Forms** (`@angular/forms/signals`: `form`, `[formField]`, schema validators, `submit(form, async () => …)`), not Reactive Forms. Never put `null` in the form model. Never put `min`/`max`/`[value]`/`[disabled]` attributes on a `[formField]` input. Settings limits come only from `SETTINGS_LIMITS` in `core/producer/producer-settings.ts`.
+- **Tests:** zoneless Act → `await fixture.whenStable()` → Assert. Never call `fixture.detectChanges()` or `markForCheck()`. Set inputs with `fixture.componentRef.setInput()`. Use `RouterTestingHarness` with the real routes; don't mock the Router.
+- **Scaffold** with `ng generate …`, and run `npx ng build` after every Angular change. The skill requires a clean build before you continue.
+
+Run the guard greps in plan §4.0 ("Control checks for the standard"). They must all return empty.
+
 ## Conventions
 
-- Use typed Reactive Forms (`NonNullableFormBuilder`), not Signal Forms. Settings limits come only from `SETTINGS_LIMITS` in `core/producer/settings.ts`.
-- Use OnPush components and signal inputs (`input()`), and `@for … track`.
-- Commit author email: `valery.vitkus@gmail.com`, set in the global git config.
+- Commit author email is `valery.vitkus@gmail.com`, set in the global git config.

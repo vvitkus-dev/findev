@@ -12,17 +12,17 @@
 | ID | Requirement (normalised) | Source | Verified by |
 |---|---|---|---|
 | R1 | Two pages: Dashboard, Settings; navigation between them | §1, §2 | component tests + manual |
-| R2 | One table row per instrument; 5 metrics: last price, spread, volume, VWAP, imbalance | §1 | `metrics.spec.ts`, `metrics-table.component.spec.ts` |
+| R2 | One table row per instrument; 5 metrics: last price, spread, volume, VWAP, imbalance | §1 | `metrics.spec.ts`, `metrics-table.spec.ts` |
 | R3 | Volume & VWAP cumulative since run start; every trade counted exactly once; book quantities never contribute to volume | §1, §3 | `metrics.spec.ts` |
-| R4 | Before data: unavailable values + volume 0. Zero denominator ⇒ unavailable | §1 | `metrics.spec.ts`, `formatters.spec.ts` |
-| R5 | Prices formatted as currency; imbalance in [−1, +1] | §1 | `formatters.spec.ts` |
-| R6 | Pause/Resume; pausing stops generation; resume keeps totals; no data for paused interval (no catch-up) | §1 | `producer-engine.spec.ts`, `producer.service.spec.ts` |
-| R7 | Basic producer status | §1 | `producer-status.component.spec.ts` |
-| R8 | Settings form: 3 integer fields, defaults 5/100/500, ranges 1–50 / 1–1000 / 50–2000 | §2 | `settings.spec.ts`, `settings.page.spec.ts` |
-| R9 | Editing does not affect producer; **Apply** starts a new run, clears values/totals, starts even if paused | §2 | `settings.page.spec.ts`, `producer.service.spec.ts` |
-| R10 | App starts with defaults (running) | §2 | `producer.service.spec.ts` |
-| R11 | Navigation preserves run + running/paused; never creates extra producers | §2 | `producer.service.spec.ts` (worker factory call count) |
-| R12 | Results from previous run never overwrite new run state | §2 | `producer.service.spec.ts`, `producer-engine.spec.ts` |
+| R4 | Before data: unavailable values + volume 0. Zero denominator ⇒ unavailable | §1 | `metrics.spec.ts`, `market-format.spec.ts` |
+| R5 | Prices formatted as currency; imbalance in [−1, +1] | §1 | `market-format.spec.ts` |
+| R6 | Pause/Resume; pausing stops generation; resume keeps totals; no data for paused interval (no catch-up) | §1 | `producer-engine.spec.ts`, `producer-store.spec.ts` |
+| R7 | Basic producer status | §1 | `producer-status.spec.ts` |
+| R8 | Settings form: 3 integer fields, defaults 5/100/500, ranges 1–50 / 1–1000 / 50–2000 | §2 | `producer-settings.spec.ts`, `settings-schema.spec.ts`, `settings.spec.ts` |
+| R9 | Editing does not affect producer; **Apply** starts a new run, clears values/totals, starts even if paused | §2 | `settings.spec.ts`, `producer-store.spec.ts` |
+| R10 | App starts with defaults (running) | §2 | `producer-store.spec.ts` |
+| R11 | Navigation preserves run + running/paused; never creates extra producers | §2 | `producer-store.spec.ts` (worker factory call count) |
+| R12 | Results from previous run never overwrite new run state | §2 | `producer-store.spec.ts`, `producer-engine.spec.ts` |
 | R13 | Wasm generates **market updates** (trade + bid/ask snapshot); randomness & price logic in Wasm | §3 | Rust tests + `grep` control check (no `Math.random` in producer path) |
 | R14 | Generator keeps per-instrument state; returns batches of requested size; prices evolve from previous values | §3 | Rust tests, `wasm-abi.test.ts` |
 | R15 | Invariants: price > 0, bid < ask, tradeQty > 0, book qty ≥ 0, trade price ∈ {bid, ask} | §3 | Rust property-style tests + `wasm-abi.test.ts` |
@@ -30,7 +30,7 @@
 | R17 | Integer cents everywhere; rounding only at display | §3 | `metrics.spec.ts`, review gate |
 | R18 | No full event history retained; UI may refresh slower than production but all trades counted | §3 | `metrics.spec.ts` (O(instruments) state), review gate |
 | R19 | UI stays usable at high rates (max = 1000 updates / 50 ms = 20 000 updates/s) | §3 | Phase 9 performance check |
-| R20 | Meaningful init errors; producer resources cleaned up on replace/destroy | §3 | `producer-engine.spec.ts`, `producer.service.spec.ts` |
+| R20 | Meaningful init errors; producer resources cleaned up on replace/destroy | §3 | `producer-engine.spec.ts`, `producer-store.spec.ts` |
 | R21 | Unit tests: metrics, settings+reset, pause/resume+stale rejection, generator | §4 | test suites listed above |
 | R22 | Tests use fixed inputs / controllable deps; no long real-time waits | §4 | injected scheduler + seeded RNG; CI test duration gate |
 | R23 | Public GitHub repo, README (build/run/test), incremental commit history | §5 | Phase 8 checks |
@@ -124,7 +124,7 @@ Worker is recreated only by the explicit "Retry" action after a fatal init error
 |---|---|
 | NgRx Store | Rejected — heavy for one feature; more to explain than to gain. |
 | RxJS `BehaviorSubject` service | Viable, but more boilerplate in zoneless templates. |
-| **Root `ProducerService` with Angular signals (`signal`, `computed`)** | **Chosen** — idiomatic Angular 22, zoneless-friendly, worker messages update signals → OnPush views re-render only bound text nodes. |
+| **`@Service()` singleton `ProducerStore` with Angular signals (private `signal`, public `.asReadonly()` / `computed`)** | **Chosen** — idiomatic Angular 22 (`@Service` is the v22 recommended singleton decorator, tree-shakable, no `providers` entry), zoneless-friendly, worker messages update signals → OnPush (v22 default) views re-render only bound text nodes. |
 
 UI refresh rate: worker posts ≤ 1 snapshot per batch ⇒ ≤ 20 Hz worst case. Main thread stores only the *latest* snapshot (no queue). Optional coalescing via `requestAnimationFrame` documented as a lever but not needed at 20 Hz × 50 rows.
 
@@ -133,8 +133,15 @@ UI refresh rate: worker posts ≤ 1 snapshot per batch ⇒ ≤ 20 Hz worst case.
 | Option | Verdict |
 |---|---|
 | Template-driven | Rejected — validation harder to unit-test. |
-| Signal Forms | Rejected for submission — newer API, higher risk of version churn; fine to discuss. |
-| **Typed Reactive Forms (`NonNullableFormBuilder`)** + custom `integerValidator` | **Chosen** — stable, explicit, trivially testable. |
+| Typed Reactive Forms (`NonNullableFormBuilder`) | Rejected — the `angular-developer` skill says new forms on v22+ should use Signal Forms; Reactive Forms is only for existing forms. |
+| **Signal Forms (`@angular/forms/signals`: `form()`, `[formField]`, `required/min/max/validate`, `submit()`)** | **Chosen** — stable in v22, model is a plain `signal<ProducerSettings>` (fits the signals store), validation lives in one schema function, state is signals → trivial zoneless tests. |
+
+Signal Forms rules that apply here (from `.claude/skills/angular-developer/references/signal-forms.md`):
+- The form model is a **local draft** `signal({...store.settings()})`. It is a copy, so editing never touches the store (R9). The model must not contain `null`; numbers start at their current value.
+- Put validation in the schema: `required`, `min`, `max` from `SETTINGS_LIMITS` with messages, and `validate()` returning `{kind:'integer', message}` for non-integers or `NaN` (an empty number input). A validator returns `undefined` when the value is valid, never `null`.
+- **Forbidden on `[formField]` inputs:** `min`/`max` attributes, `[value]`, `[disabled]`. The schema handles them. `step="1"` and `inputmode="numeric"` are allowed.
+- Apply goes through `submit(form, async () => store.apply(model()))`. `submit` marks all fields touched and runs the callback only when the form is valid. The Apply button uses `[disabled]="settingsForm().invalid()"`.
+- Read field state by calling the field: `settingsForm.instrumentCount().errors()`. `settingsForm.instrumentCount.errors()` is wrong.
 
 ### 1.9 Hosting / CD
 
@@ -170,20 +177,24 @@ UI refresh rate: worker posts ≤ 1 snapshot per batch ⇒ ≤ 20 Hz worst case.
 ├── src/app/
 │   ├── app.ts / app.html / app.routes.ts / app.config.ts
 │   ├── core/producer/
-│   │   ├── protocol.ts                 # message types (main ⇄ worker)
-│   │   ├── settings.ts                 # defaults, limits, validateSettings()
+│   ├── core/producer/
+│   │   ├── protocol.model.ts           # message types (main ⇄ worker) — models keep `.model.ts`
+│   │   ├── producer-settings.model.ts  # interface ProducerSettings
+│   │   ├── producer-settings.ts        # DEFAULT_SETTINGS, SETTINGS_LIMITS, validateSettings()
 │   │   ├── symbols.ts                  # 50 deterministic tickers
 │   │   ├── metrics.ts                  # accumulator + applyBatch + deriveMetrics
 │   │   ├── scheduler.ts                # Scheduler/Clock interfaces + real impls
 │   │   ├── wasm-generator.ts           # WebAssembly adapter (no Angular deps)
 │   │   ├── producer-engine.ts          # worker-side state machine (pure TS)
 │   │   ├── producer.worker.ts          # thin adapter: self.onmessage → engine
-│   │   ├── worker-factory.ts           # InjectionToken<() => Worker>
-│   │   └── producer.service.ts         # root signals store, runId gate
-│   ├── shared/format/formatters.ts     # currency, imbalance, volume, "—"
+│   │   ├── producer-tokens.ts          # WORKER_FACTORY, SEED_SOURCE, WASM_URL InjectionTokens
+│   │   └── producer-store.ts           # @Service() ProducerStore — signals, runId gate
+│   ├── shared/format/
+│   │   ├── market-format.ts            # pure fns: formatCents, formatImbalance, formatVolume ("—" for null)
+│   │   └── market-format-pipes.ts      # pure pipes delegating to the fns (cents | imbalance | volume)
 │   └── features/
-│       ├── dashboard/  dashboard.page.ts, metrics-table.component.ts, producer-status.component.ts
-│       └── settings/   settings.page.ts, integer.validator.ts
+│       ├── dashboard/  dashboard.ts (class Dashboard), components/metrics-table.ts, components/producer-status.ts
+│       └── settings/   settings.ts (class Settings, Signal Form), settings-schema.ts (validation schema)
 ├── .github/workflows/ci-deploy.yml
 └── README.md
 ```
@@ -242,7 +253,7 @@ export async function loadWasmGeneratorFactory(source: URL | ArrayBuffer): Promi
 // - instantiateStreaming when URL + correct MIME, falls back to arrayBuffer() + instantiate
 ```
 
-### 3.4 Worker protocol (`protocol.ts`)
+### 3.4 Worker protocol (`protocol.model.ts`)
 
 ```ts
 export interface ProducerSettings { instrumentCount: number; updatesPerBatch: number; batchIntervalMs: number; }
@@ -288,11 +299,12 @@ export interface InstrumentMetrics {
 export function deriveMetrics(a: InstrumentAccumulatorDto): InstrumentMetrics;
 ```
 
-### 3.6 Main-thread store (`producer.service.ts`)
+### 3.6 Main-thread store (`producer-store.ts`)
 
 ```ts
-@Injectable({ providedIn: 'root' })
-export class ProducerService {
+@Service()   // v22 singleton decorator, replaces @Injectable({providedIn:'root'})
+export class ProducerStore {
+  // each public signal = private writable signal exposed via .asReadonly() or computed()
   readonly status: Signal<'initializing' | 'running' | 'paused' | 'error'>;
   readonly settings: Signal<ProducerSettings>;
   readonly runId: Signal<number>;
@@ -314,10 +326,45 @@ Conventions for every step:
 - **Commit per step** (conventional commits, e.g. `feat(wasm): pcg32 rng`), so the history tells the story.
 - A step is **done only when all its control checks pass**; checks are commands with an exact expected result (exit code, test name, grep result). No "looks fine".
 - **Phase gate** = all step checks + the phase gate command listed at the end of the phase.
+- **Angular code is written using the `angular-developer` skill** (`.claude/skills/angular-developer/`, see §4.0). Before any Angular step, load the skill and read the reference files that step names. Each Angular step also has an implicit check: `npx ng build` exits 0 afterwards. The skill requires this after every code generation.
 - Global gate command (defined in Phase 0, grows over time):
   ```bash
   npm run verify   # = lint:types && test:wasm && test && build
   ```
+
+---
+
+### 4.0 Angular coding standard: `angular-developer` skill
+
+Source: https://angular.dev/ai/agent-skills, installed with
+`npx skills add https://github.com/angular/skills --skill angular-developer --agent claude-code --copy -y`.
+It is copied into `.claude/skills/angular-developer/`. The version is pinned by commit and hash in `skills-lock.json`. Restore with `npx skills experimental_install`, update with `npx skills update angular-developer -p`.
+
+Rules taken from the skill. They apply to every Angular step and override the plan's older wording:
+
+| Area | Rule | Skill reference |
+|---|---|---|
+| Version | Check `package.json` first. Angular **22.2**: zoneless, standalone, OnPush is the default `changeDetection`, so don't set it. | SKILL.md §1 |
+| Scaffolding | Use `ng generate component/service/pipe …`, then adjust the result. | `cli.md` |
+| Naming | "Intent over Role": `metrics-table.ts` → `class MetricsTable`. No `.component`/`.service` suffixes. Interfaces go in `*.model.ts`. Specs are named `<name>.spec.ts`. Don't mix the two styles. | `naming-conventions.md` |
+| Components | Signal `input()`/`input.required()` and `output()`. Use built-in control flow (`@if/@for/@switch`, with `track` required on `@for`). Self-closing tags (`<router-outlet />`). Inline template for small components. No expensive work in templates: use `computed()` or a pure pipe. | `components.md`, `inputs.md`, `outputs.md` |
+| Services / DI | `@Service()` for singletons. `inject()` instead of constructor parameters. `InjectionToken` with a `factory` as the default, replaced in tests with `{provide, useValue}`. | `creating-services.md`, `defining-providers.md` |
+| Reactivity | `signal` / `computed` / `linkedSignal`. Avoid `effect` for state propagation; use it only for side effects. | `signals-overview.md`, `effects.md`, `linked-signal.md` |
+| Forms | **Signal Forms** for the settings form (see §1.8). | `signal-forms.md` |
+| Formatting | Pure pipes in templates, delegating to plain exported functions. Never inject pipes into classes. | `pipes.md` |
+| Routing | `loadComponent` lazy routes; `RouterLink` and `routerLinkActive`. | `define-routes.md`, `loading-strategies.md`, `navigate-to-routes.md` |
+| Styling | Component styles stay encapsulated and inside the 4 kB budget. Native CSS only, no animation DSL. | `component-styling.md`, `angular-animations.md` |
+| Testing | Vitest with zoneless **Act → `await fixture.whenStable()` → Assert**. **Never use `fixture.detectChanges()`** or `markForCheck()`. Set inputs with `fixture.componentRef.setInput()`. Use `RouterTestingHarness` for navigation; don't mock the Router. | `testing-fundamentals.md`, `router-testing.md` |
+
+Control checks for the standard. They run in the Phase 7 gate and before every push:
+```bash
+grep -rnE "detectChanges\(|markForCheck\(" src/app --include=*.spec.ts           # → empty
+grep -rnE "@Injectable\(|providedIn: 'root'" src/app                             # → empty
+grep -rnE "FormGroup|FormControl|FormBuilder|ReactiveFormsModule" src/app        # → empty
+grep -rnE "\*ngIf|\*ngFor|\[ngSwitch\]" src/app                                  # → empty
+grep -rnE "@Input\(|@Output\(|changeDetection:" src/app                          # → empty
+find src/app -name "*.component.ts" -o -name "*.service.ts"                       # → empty
+```
 
 ---
 
@@ -327,10 +374,11 @@ Conventions for every step:
 
 | Step | Work | Control check (deterministic) |
 |---|---|---|
-| 0.1 | `git checkout main` (repo is on detached HEAD). Add `.nvmrc` to git. | `git branch --show-current` → `main`; `git status --porcelain` has no `??` lines after commit |
+| 0.1 | ✅ Done: on `main`, `.nvmrc` committed, public repo `vvitkus-dev/findev` created and pushed. | `git branch --show-current` → `main`; `git ls-remote origin main` = local `HEAD` |
+| 0.1b | ✅ Done: `angular-developer` skill installed (see §4.0) and `skills-lock.json` committed. | `test -f .claude/skills/angular-developer/SKILL.md && jq -e '.skills["angular-developer"]' skills-lock.json` exit 0 |
 | 0.2 | Install rustup locally; add `rust-toolchain.toml` (`channel = "1.xx.0"` pinned stable, `targets = ["wasm32-unknown-unknown"]`, `profile = "minimal"`). | `rustc --version` prints the pinned version; `rustup target list --installed` contains `wasm32-unknown-unknown` |
 | 0.3 | `tsconfig.json`: add `"strict": true`, `"noUncheckedIndexedAccess": true`; angular: `strictTemplates: true`. | `npx tsc -p tsconfig.app.json --noEmit` exit 0 |
-| 0.4 | Remove placeholder `app.html` content; minimal shell `<router-outlet>`; update `app.spec.ts`. | `npx ng test --watch=false` exit 0 |
+| 0.4 | Remove placeholder `app.html` content; minimal shell `<router-outlet />`; update `app.spec.ts` (Act → `whenStable` → Assert). | `npx ng test --watch=false` exit 0 |
 | 0.5 | npm scripts: `wasm:build`, `wasm:verify`, `test:wasm`, `test:rust`, `lint:types`, `verify`, `prestart`/`prebuild` → `wasm:build`. `.gitignore`: `/public/wasm/`, `/wasm/producer/target/`. | `npm run` lists all scripts; `git check-ignore public/wasm/x.wasm` exit 0 |
 | 0.6 | Prettier check script `format:check`. | `npm run format:check` exit 0 |
 
@@ -362,14 +410,14 @@ Conventions for every step:
 
 | Step | Work | Control check |
 |---|---|---|
-| 2.1 | `settings.ts`: `DEFAULT_SETTINGS = {5,100,500}`, `SETTINGS_LIMITS`, `validateSettings(x): {ok:true,value}|{ok:false,errors}` (integers, ranges, finite). `nominalRate(s) = updatesPerBatch*1000/batchIntervalMs`. | `settings.spec.ts`: defaults equal spec; each boundary (0,1,50,51 / 0,1,1000,1001 / 49,50,2000,2001) accepted/rejected correctly; `1.5`, `NaN`, `Infinity`, `'5'` rejected; `nominalRate(default)===200` |
+| 2.1 | `producer-settings.ts`: `DEFAULT_SETTINGS = {5,100,500}`, `SETTINGS_LIMITS`, `validateSettings(x): {ok:true,value}|{ok:false,errors}` (integers, ranges, finite). `nominalRate(s) = updatesPerBatch*1000/batchIntervalMs`. | `producer-settings.spec.ts`: defaults equal spec; each boundary (0,1,50,51 / 0,1,1000,1001 / 49,50,2000,2001) accepted/rejected correctly; `1.5`, `NaN`, `Infinity`, `'5'` rejected; `nominalRate(default)===200` |
 | 2.2 | `symbols.ts`: 50 unique 4-letter uppercase tickers starting `ALFA, BETA`. | spec: length 50, `new Set(list).size===50`, all match `/^[A-Z]{4}$/` |
 | 2.3 | `metrics.ts`: `createAccumulators`, `applyBatch`, `deriveMetrics` (§3.5). | `metrics.spec.ts` (all via hand-built `Uint32Array`s): **worked example** — trades (10@10000),(30@10200), bid 10196 ask 10200, bq 600 aq 400 ⇒ last 10200, volume 40, vwap 10150, spread 4, imbalance 0.2 (`toBeCloseTo(0.2, 12)`); **empty** ⇒ all null, volume 0; **zero book** (bq=aq=0) ⇒ imbalance null; **isolation** — updates for instrument 1 don't change instrument 0/2; **book qty never counted in volume**; **each trade once** — same batch applied twice ⇒ volume doubles exactly (no hidden dedupe/double count); **O(instruments)** — accumulator array length unchanged after 10 000 updates; **precision** — notional at 2^53−1 boundary stays exact for integer inputs |
-| 2.4 | `formatters.ts`: `formatCents(c|null)` → `Intl.NumberFormat('en-US',{style:'currency',currency:'USD'})` of `c/100`, null → `—`; `formatImbalance` → `+0.20`/`−0.35`/`0.00`/`—`, clamps display to [−1,1]; `formatVolume` → grouped integer. | spec: `formatCents(10150)==='$101.50'`, `formatCents(4)==='$0.04'`, `formatCents(null)==='—'`, `formatImbalance(0.2)==='+0.20'`, `formatImbalance(-1)==='−1.00'`, `formatVolume(0)==='0'`, `formatVolume(1234567)==='1,234,567'` |
+| 2.4 | `market-format.ts`: `formatCents(c|null)` → `Intl.NumberFormat('en-US',{style:'currency',currency:'USD'})` of `c/100`, null → `—`; `formatImbalance` → `+0.20`/`−0.35`/`0.00`/`—`, clamps display to [−1,1]; `formatVolume` → grouped integer. Plus `market-format-pipes.ts`: pure pipes `cents`, `imbalance`, `volume` that only delegate to these functions (skill `pipes.md`). | spec: `formatCents(10150)==='$101.50'`, `formatCents(4)==='$0.04'`, `formatCents(null)==='—'`, `formatImbalance(0.2)==='+0.20'`, `formatImbalance(-1)==='−1.00'`, `formatVolume(0)==='0'`, `formatVolume(1234567)==='1,234,567'`; pipe spec: `new CentsPipe().transform(10150)==='$101.50'` |
 | 2.5 | `wasm-generator.ts` (§3.3). Creates fresh `Uint32Array(memory.buffer, ptr, n*7)` after each call; throws `WasmAbiError` on version mismatch, `RangeError` on null pointer. `dispose` idempotent; `generate` after dispose throws. | `wasm-tests/producer.wasm.test.ts` (Node env, real artefact): batch sizes 1/100/1000 → `length===n*7`; invariants on 50 000 updates; fixed seed ⇒ identical output across two factory instances; invalid count throws; ABI mismatch with a stub module throws `WasmAbiError`; `generate` after `dispose` throws |
-| 2.6 | Control check that randomness lives in Wasm. | `grep -rnE "Math\.random|crypto\.getRandomValues" src/app/core/producer --include=*.ts | grep -v spec` → only `producer.service.ts` (seed source) |
+| 2.6 | Control check that randomness lives in Wasm. | `grep -rnE "Math\.random|crypto\.getRandomValues" src/app/core/producer --include=*.ts | grep -v spec` → only `producer-store.ts` (seed source) |
 
-**Phase 2 gate:** `npx ng test --watch=false` and `npm run test:wasm` exit 0; coverage of `metrics.ts`, `settings.ts`, `formatters.ts` ≥ 95 % lines (`ng test --coverage`).
+**Phase 2 gate:** `npx ng test --watch=false` and `npm run test:wasm` exit 0; coverage of `metrics.ts`, `producer-settings.ts`, `market-format.ts` ≥ 95 % lines (`ng test --coverage`).
 
 ---
 
@@ -404,18 +452,18 @@ Behaviour:
 
 ---
 
-### Phase 4 — Main-thread store (`ProducerService`)
+### Phase 4 — Main-thread store (`ProducerStore`)
 
 | Step | Work | Control check |
 |---|---|---|
-| 4.1 | DI tokens `WORKER_FACTORY`, `SEED_SOURCE`, `WASM_URL` (default `new URL('wasm/producer.wasm', document.baseURI).href`). `FakeWorker` test double records `postMessage` and exposes `emit(msg)`. | type-check passes |
-| 4.2 | Bootstrap: `provideAppInitializer(() => inject(ProducerService).boot())` → create worker once, send `init` then `start{runId:1, DEFAULT_SETTINGS}`; rows = empty accumulators for 5 instruments. | `producer.service.spec.ts`: after boot, worker factory called **exactly once**; messages `[init, start(runId=1, defaults)]`; `rows().length===5`, all `lastPriceCents===null`, `volume===0`; `status()==='initializing'` until `ready`+`status running` |
+| 4.1 | `producer-tokens.ts`: `InjectionToken`s `WORKER_FACTORY`, `SEED_SOURCE`, `WASM_URL`, each with a `factory` default (skill `defining-providers.md`). The `WASM_URL` default is `new URL('wasm/producer.wasm', document.baseURI).href`. Tests override them with `{provide, useValue}`. `FakeWorker` test double records `postMessage` and exposes `emit(msg)`. | type-check passes |
+| 4.2 | `ng generate service core/producer/producer-store`, then convert it to `@Service()` with private signals and `.asReadonly()`. Bootstrap: `provideAppInitializer(() => inject(ProducerStore).boot())` → create worker once, send `init` then `start{runId:1, DEFAULT_SETTINGS}`; rows = empty accumulators for 5 instruments. | `producer-store.spec.ts`: after boot, worker factory called **exactly once**; messages `[init, start(runId=1, defaults)]`; `rows().length===5`, all `lastPriceCents===null`, `volume===0`; `status()==='initializing'` until `ready`+`status running` |
 | 4.3 | Snapshot handling with run gate. | spec: snapshot `runId===current` updates rows; **stale snapshot (runId 1 after apply ⇒ runId 2) is dropped** — rows remain zeroed; snapshot with `seq` ≤ last seen ignored |
 | 4.4 | `apply(settings)`: `validateSettings` (throws on invalid — UI never calls with invalid), `runId++`, settings signal set, rows reset to `instrumentCount` empty rows **synchronously**, send `start`. Works from paused. | spec: after apply from paused ⇒ last message `start{runId:2}`, `status()` becomes `running` on worker ack; rows length = new count, all empty; stats reset |
 | 4.5 | `pause()/resume()`: send with current runId; optimistic `status` update, reconciled by worker `status` messages. | spec: pause ⇒ message `{pause, runId}`; double pause sends once; resume from running is no-op |
 | 4.6 | Throughput stat: updates/s computed from snapshot `stats.updates` deltas over a 1 s sliding window using injected `Clock`. | spec with fake clock: 2 snapshots of 100 updates 500 ms apart ⇒ `200` |
 | 4.7 | Errors & cleanup: `worker.onerror`, `onmessageerror`, `error` messages ⇒ `status='error'`, `error()` message. `retry()` terminates old worker, creates new one, re-sends init+start with **new** runId. `DestroyRef.onDestroy` ⇒ send `dispose` + `terminate()`. | spec: init error sets human-readable message; `retry` ⇒ factory call count 2, old `terminate` called once; `TestBed.resetTestingModule()` (destroys root injector) ⇒ `terminate` called |
-| 4.8 | Navigation invariant. | spec: create router harness, navigate dashboard→settings→dashboard ×5 ⇒ factory call count still 1; status preserved (pause, navigate, still paused) |
+| 4.8 | Navigation invariant. | spec using `RouterTestingHarness` with the real `routes` (no Router mocks, per skill `router-testing.md`): navigate dashboard→settings→dashboard ×5 ⇒ factory call count still 1; status preserved (pause, navigate, still paused) |
 
 **Phase 4 gate:** `npx ng test --watch=false` exit 0; `grep -rn "new Worker" src/app | grep -v spec` → exactly 1 hit (`worker-factory.ts`).
 
@@ -425,9 +473,9 @@ Behaviour:
 
 | Step | Work | Control check |
 |---|---|---|
-| 5.1 | `MetricsTableComponent` (`input.required<InstrumentMetrics[]>()`, OnPush): columns Symbol · Last · Spread · Volume · VWAP · Imbalance; `@for (r of rows(); track r.symbol)`; numeric columns right-aligned, `font-variant-numeric: tabular-nums` (no jitter at 20 Hz); imbalance coloured by sign with text sign too (not colour-only). | spec: given worked-example metrics ⇒ cells `$102.00`, `$0.04`, `40`, `$101.50`, `+0.20`; given empty row ⇒ `—`,`—`,`0`,`—`,`—` |
-| 5.2 | `ProducerStatusComponent`: status pill (Initializing/Running/Paused/Error), run #, settings summary, nominal vs measured updates/s, batches; Pause/Resume button (label/`aria-pressed` reflect state; disabled while initializing/error). | spec: running ⇒ button text `Pause`; click ⇒ `service.pause()` called; paused ⇒ `Resume`; error ⇒ alert region with message + `Retry` |
-| 5.3 | `DashboardPage` composes both, reads signals from `ProducerService`. | spec with stub service: renders N rows for N instruments |
+| 5.1 | `ng generate component features/dashboard/components/metrics-table`. `MetricsTable` takes `rows = input.required<InstrumentMetrics[]>()`. Default OnPush, so don't set `changeDetection`. Cells use the `cents`/`imbalance`/`volume` pipes, not method calls. columns Symbol · Last · Spread · Volume · VWAP · Imbalance; `@for (r of rows(); track r.symbol)`; numeric columns right-aligned, `font-variant-numeric: tabular-nums` (no jitter at 20 Hz); imbalance coloured by sign with text sign too (not colour-only). | spec (`fixture.componentRef.setInput('rows', …)` → `await fixture.whenStable()` → assert): given worked-example metrics ⇒ cells `$102.00`, `$0.04`, `40`, `$101.50`, `+0.20`; given empty row ⇒ `—`,`—`,`0`,`—`,`—` |
+| 5.2 | `ProducerStatus` (`components/producer-status.ts`): status pill (`@switch (status())` with `@default never;` for exhaustive typing) (Initializing/Running/Paused/Error), run #, settings summary, nominal vs measured updates/s, batches; Pause/Resume button (label/`aria-pressed` reflect state; disabled while initializing/error). | spec: running ⇒ button text `Pause`; click ⇒ `service.pause()` called; paused ⇒ `Resume`; error ⇒ alert region with message + `Retry` |
+| 5.3 | `Dashboard` (`features/dashboard/dashboard.ts`) composes both with self-closing tags and reads signals from `ProducerStore` via `inject()`. | spec with a stub store (`{provide: ProducerStore, useValue: stub}`): renders N rows for N instruments |
 | 5.4 | Accessibility: `<table>` with `<caption>`, `scope="col"`; status in `role="status" aria-live="polite"` (only status text, **not** the live table, to avoid screen-reader flooding). | spec asserts `caption` exists and `role="status"` present |
 
 **Phase 5 gate:** tests pass; `npx ng build` within budgets (initial < 500 kB warning budget).
@@ -438,11 +486,11 @@ Behaviour:
 
 | Step | Work | Control check |
 |---|---|---|
-| 6.1 | `integerValidator`: error `{integer:true}` when value non-null and `!Number.isInteger(v)`. | spec: `1`→null, `1.5`→error, `null`→null (required handles it) |
-| 6.2 | `SettingsPage`: typed `NonNullableFormBuilder` group, validators `required, integer, min, max` per `SETTINGS_LIMITS`; initial values = `service.settings()`; inputs `type="number" step="1" inputmode="numeric"` with labels, hints showing ranges, errors shown on touched/dirty (`aria-describedby`). Live "Nominal rate: 200 updates/s" from form value. | spec: initial values `5/100/500`; set `0` ⇒ form invalid + error text `Must be between 1 and 50`; set `1.5` ⇒ `Must be a whole number`; Apply button disabled when invalid |
+| 6.1 | `settingsSchema` in `features/settings/settings-schema.ts` (Signal Forms `schema()`): for each field, `required` + `min`/`max` from `SETTINGS_LIMITS` with messages `Must be between X and Y`, plus `validate(path, ({value}) => Number.isInteger(value()) ? undefined : {kind:'integer', message:'Must be a whole number'})`. Validators return `undefined` when valid, never `null`. | spec (pure, no TestBed DOM): `form(signal({...DEFAULT_SETTINGS}), settingsSchema)` valid; `instrumentCount=0` ⇒ `errors()[0].kind==='min'`; `=1.5` ⇒ `getError('integer')` defined; `=NaN` (empty input) ⇒ invalid; boundaries 1/50, 1/1000, 50/2000 valid |
+| 6.2 | `Settings` (`features/settings/settings.ts`, imports `FormField`): draft model `linkedSignal(() => ({...store.settings()}))`, so the form re-syncs when the applied settings change and is otherwise a local copy. `settingsForm = form(this.draft, settingsSchema)`. Inputs `<input type="number" step="1" inputmode="numeric" [formField]="settingsForm.instrumentCount">` with **no** `min`/`max`/`[value]`/`[disabled]` attributes (forbidden by the skill), labels, hints showing ranges, errors shown on touched/dirty (`aria-describedby`). Live "Nominal rate: 200 updates/s" is a `computed` over `settingsForm().value()`. | spec (set values through input DOM events → `whenStable` → assert): initial values `5/100/500`; set `0` ⇒ form invalid + error text `Must be between 1 and 50`; set `1.5` ⇒ `Must be a whole number`; Apply button disabled when invalid |
 | 6.3 | Editing doesn't affect producer. | spec: change values, don't click Apply ⇒ `service.apply` not called (spy) and `service.settings()` unchanged |
-| 6.4 | Apply → `service.apply(form.getRawValue())`, form marked pristine, confirmation "Run #N started with …". "Reset to defaults" fills form only. | spec: Apply with valid values ⇒ `apply` called once with integers `{10,200,250}`; reset-to-defaults ⇒ form values default, `apply` not called |
-| 6.5 | Integration (real `ProducerService` + `FakeWorker`): apply ⇒ dashboard rows cleared and stale snapshot rejected. | spec: emit snapshot run1 with volume 40 ⇒ apply ⇒ rows volume 0 ⇒ emit another run1 snapshot ⇒ still 0 ⇒ emit run2 snapshot ⇒ updated |
+| 6.4 | Apply → `submit(settingsForm, async () => store.apply(draft()))` (the callback must be `async`), then `settingsForm().reset()`, confirmation "Run #N started with …". "Reset to defaults" fills form only. | spec: Apply with valid values ⇒ `apply` called once with integers `{10,200,250}`; reset-to-defaults (`draft.set({...DEFAULT_SETTINGS})`) ⇒ form values default, `apply` not called; submitting an invalid form ⇒ `apply` not called and all fields touched |
+| 6.5 | Integration (real `ProducerStore` + `FakeWorker`): apply ⇒ dashboard rows cleared and stale snapshot rejected. | spec: emit snapshot run1 with volume 40 ⇒ apply ⇒ rows volume 0 ⇒ emit another run1 snapshot ⇒ still 0 ⇒ emit run2 snapshot ⇒ updated |
 
 **Phase 6 gate:** `npx ng test --watch=false` exit 0.
 
@@ -452,11 +500,11 @@ Behaviour:
 
 | Step | Work | Control check |
 |---|---|---|
-| 7.1 | Routes: `''`→`dashboard` redirect, `dashboard`, `settings` (`loadComponent` lazy), `**`→`dashboard`. `withComponentInputBinding()` not needed. Header nav with `routerLinkActive`, status pill visible on both pages. | `app.routes.spec.ts`: navigating to `/unknown` lands on `/dashboard` |
+| 7.1 | Routes: `''`→`dashboard` redirect, `dashboard`, `settings` (`loadComponent` lazy), `**`→`dashboard`. `withComponentInputBinding()` not needed. `app.html` shell: header nav with `RouterLink` + `routerLinkActive`, `<router-outlet />`, status pill visible on both pages. | `app.routes.spec.ts` with `RouterTestingHarness` + real `routes`: `/unknown` → `/dashboard`; `/settings` renders `Settings` |
 | 7.2 | Global init-error banner (from `service.error()`), with Retry. | spec: service in error ⇒ banner text contains message and Retry triggers `retry()` |
 | 7.3 | Minimal responsive styling (table scrolls horizontally on narrow screens, ≥ 44 px touch targets). Keep component styles < 4 kB budget. | `npx ng build` no budget warnings |
 
-**Phase 7 gate:** `npm run verify` exit 0.
+**Phase 7 gate:** `npm run verify` exit 0 **and** every grep in §4.0 "Control checks for the standard" returns empty.
 
 ---
 
@@ -498,9 +546,9 @@ Behaviour:
 
 | Task requirement | Suite | Key cases |
 |---|---|---|
-| Metric calculations, worked example, zero denominators, instrument isolation | `metrics.spec.ts`, `formatters.spec.ts`, `metrics-table.component.spec.ts` | worked example exact numbers; empty ⇒ unavailable + volume 0; bq+aq = 0 ⇒ imbalance unavailable; instrument isolation; book qty excluded from volume |
-| Settings validation & reset on apply | `settings.spec.ts`, `settings.page.spec.ts`, `producer.service.spec.ts` | boundaries, non-integers, required; editing doesn't apply; apply resets rows/stats and increments runId; apply from paused starts running |
-| Pause/resume & stale-run rejection | `producer-engine.spec.ts`, `producer.service.spec.ts` | no generation while paused; no catch-up; totals preserved; stale snapshot / stale command ignored |
+| Metric calculations, worked example, zero denominators, instrument isolation | `metrics.spec.ts`, `market-format.spec.ts`, `metrics-table.spec.ts` | worked example exact numbers; empty ⇒ unavailable + volume 0; bq+aq = 0 ⇒ imbalance unavailable; instrument isolation; book qty excluded from volume |
+| Settings validation & reset on apply | `producer-settings.spec.ts`, `settings-schema.spec.ts`, `settings.spec.ts`, `producer-store.spec.ts` | boundaries, non-integers, required; editing doesn't apply; apply resets rows/stats and increments runId; apply from paused starts running |
+| Pause/resume & stale-run rejection | `producer-engine.spec.ts`, `producer-store.spec.ts` | no generation while paused; no catch-up; totals preserved; stale snapshot / stale command ignored |
 | Generator behaviour | Rust `cargo test` + `wasm-tests/producer.wasm.test.ts` | exact batch sizes; invariants on 100k updates; determinism by seed; state continuity across calls; invalid input handling |
 
 All time-dependent tests use `ManualScheduler`/fake `Clock`; all randomness uses fixed seeds. No test sleeps.
@@ -531,7 +579,7 @@ feat(wasm): producer batch buffer and C ABI
 build(wasm): build + verify scripts, wasm in public/
 feat(core): settings defaults and validation
 feat(core): metric accumulator and derivation
-feat(core): formatters
+feat(core): market formatters + pipes
 feat(core): wasm generator adapter + node wasm tests
 feat(worker): producer engine with injectable scheduler
 feat(worker): pause/resume, run isolation, cleanup
