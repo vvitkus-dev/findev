@@ -82,18 +82,57 @@ jobs:
       - name: Production build for GitHub Pages
         env:
           REPO: ${{ github.event.repository.name }}
-        run: |
-          npx ng build --base-href "/$REPO/" --define "BUILD_SHA='${GITHUB_SHA::7}'"
-          # SPA fallback: Pages serves 404.html for deep links such as /settings.
-          cp dist/findev/browser/index.html dist/findev/browser/404.html
+        # Base href /<repo>/, the commit SHA in the footer, and 404.html as the SPA fallback.
+        run: BUILD_SHA="${GITHUB_SHA::7}" node scripts/build-pages.mjs --base "$REPO"
+      # The exact bundle that deploys is what the e2e job tests.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pages-build
+          path: dist/findev/browser
+          retention-days: 3
+          if-no-files-found: error
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           path: dist/findev/browser
 
+  e2e:
+    name: E2E (Playwright)
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Pinned image (same Playwright version as package.json) so browsers and fonts are fixed.
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
+      options: --ipc=host
+    env:
+      HOME: /root
+      HUSKY: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pages-build
+          path: dist/findev/browser
+      # Serves the bundle under /<repo>/ like Pages (playwright.config.ts webServer).
+      - run: npx playwright test
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            reports/playwright
+            reports/playwright-results
+          retention-days: 7
+
   deploy:
     name: Deploy to GitHub Pages
-    needs: [static, self-test, test]
+    needs: [static, self-test, test, e2e]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -124,3 +163,26 @@ jobs:
           node-version-file: .nvmrc
       # Retries for up to 5 minutes while the Pages CDN switches to the new build.
       - run: node scripts/smoke-deploy.mjs "${{ needs.deploy.outputs.page_url }}" --sha "${GITHUB_SHA::7}" --timeout 300
+
+  smoke-e2e:
+    name: E2E smoke on the live site
+    # After `smoke`, which waits until the CDN serves this commit.
+    needs: [deploy, smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
+      options: --ipc=host
+    env:
+      HOME: /root
+      HUSKY: '0'
+      E2E_BASE_URL: ${{ needs.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # The @smoke specs: boot with live rows, and the wasm-404 banner with Retry.
+      - run: npm run e2e:smoke

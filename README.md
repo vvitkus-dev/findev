@@ -51,18 +51,17 @@ flowchart LR
 
 ### Decisions and trade-offs
 
-| Decision                   | Chosen                                                       | Why, and what was rejected                                                                                          |
-| -------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| Wasm language              | Rust, `wasm32-unknown-unknown`                               | Tiny output (< 64 KB, checked), native `cargo test`. AssemblyScript reads as "TS in Wasm"; Emscripten is heavy.     |
-| JS ↔ Wasm interface        | Raw C ABI + `Uint32Array` view                               | Zero copies, zero glue, explainable byte by byte. wasm-bindgen adds generated glue and copies arrays.               |
-| Batch format               | Array of structs, 7 × `u32` (28 B/update)                    | One pointer, one view. JS objects per update would mean 20 000 allocations/s.                                       |
-| Where metrics are computed | Sums in the worker, derivation on the main thread            | The UI thread never sees raw batches; stale runs are dropped whole. Both halves are pure, unit-tested functions.    |
-| Worker lifecycle           | One worker per app, one Wasm generator per run               | Navigation can never create a producer; Apply is cheap. A new worker is created only by Retry after a fatal error.  |
-| Scheduling                 | Worker-side `setTimeout`, delay `max(0, interval − elapsed)` | No overlapping ticks and no catch-up bursts after a pause or a throttled tab. `setInterval` was rejected for both.  |
-| Run isolation              | `runId` on every command and snapshot, checked on both sides | Apply resets the rows synchronously; a late snapshot from the old run can never leak into the new one.              |
-| State                      | `@Service()` store with signals                              | Idiomatic zoneless Angular 22. NgRx is heavy for one feature.                                                       |
-| Forms                      | Signal Forms with a validation schema                        | The v22 recommendation for new forms; limits come only from `SETTINGS_LIMITS`.                                      |
-| Hosting                    | GitHub Pages via GitHub Actions                              | Same platform as the repo, Rust and Node on one runner. Needs `--base-href /findev/` and a `404.html` SPA fallback. |
+| Decision              | Chosen                                                                                                                              | Why, and what was rejected                                                                                      |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Wasm language         | Rust, `wasm32-unknown-unknown`                                                                                                      | Tiny output (< 64 KB, checked), native `cargo test`. AssemblyScript reads as "TS in Wasm"; Emscripten is heavy. |
+| JS ↔ Wasm interface   | Raw C ABI + `Uint32Array` view                                                                                                      | Zero copies, zero glue, explainable byte by byte. wasm-bindgen adds generated glue and copies arrays.           |
+| Batch format          | Array of structs, 7 × `u32` (28 B/update)                                                                                           | One pointer, one view. JS objects per update would mean 20 000 allocations/s.                                   |
+| Where                 | What runs                                                                                                                           |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------   |
+| Commit                | Prettier + ESLint on staged files (lint-staged), conventional commit messages (commitlint)                                          |
+| Push                  | `npm run verify:fast`: static checks, Rust, Wasm suite, unit tests with coverage thresholds                                         |
+| CI, every push and PR | `static` ∥ `self-test` ∥ `test` (Rust tests, mutants, coverage; Wasm build, ABI check, Wasm tests; unit tests; Pages build) → `e2e` |
+| CI, `main` only       | `deploy` (needs all four) → `smoke` against the live URL, including the deployed commit SHA → `smoke-e2e` (Playwright `@smoke`)     |
 
 ## Data model and formulas
 
@@ -126,6 +125,10 @@ Every threshold is a hard failure, and deploy is blocked unless all gates are gr
 - **`npm run quality:self-test`:** proves each gate still fires by feeding it a deliberately bad
   input (lint, coverage, duplication, Rust, Wasm ABI, dependency age, git hooks, deploy smoke).
 - **`npm run test:rust:mutants`:** injected Rust bugs must each make a test fail.
+- **`npm run e2e`:** Playwright on the deploy-shaped bundle (real worker and Wasm): live rows,
+  pause/resume, settings validation and apply, navigation, the Wasm-404 banner with Retry, and axe
+  (no serious or critical WCAG 2 A/AA violations). In CI it runs in the pinned Playwright image
+  on the exact bundle that deploys.
 
 ## Known limits
 
