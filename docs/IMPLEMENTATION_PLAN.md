@@ -870,6 +870,21 @@ Behaviour:
 | 9.5  | Requirement traceability: every row R1–R24 has a passing test or a documented manual check.                                                       | Checklist in README "Requirements coverage" fully ticked                                                                                           |
 | 9.6  | Interview extension rehearsal (prove architecture is flexible): e.g. add a 6th metric (trade count), add sorting, add per-instrument price flash. | Each is ≤ 1 file change in the relevant layer; tests still pass                                                                                    |
 
+> **9.1–9.5 status (2026-11-18): done. 9.6 (extension rehearsal) is left for the interview.**
+>
+> - **9.1, max load** (production Pages build, Chrome, 50/1000/50 = 20 000 updates/s, 10 s trace):
+>   - 0 long tasks on the main thread; CLS 0.00.
+>   - 201 batches against 200 nominal, and the measured rate stayed at 19 000–21 000/s (within ±10 %).
+>   - `lastBatchMs` isn't shown in the UI, so the worker's batch work (Wasm `generate(1000)` + the `applyBatch` fold) was timed in Node on the real module: p50 0.03 ms, p99 0.09 ms, max 0.48 ms (< 5 ms).
+> - **9.2, memory:**
+>   - 5 min at max load: JS heap after GC went from 4.20 to 4.45 MB (+0.25 MB). The `.push(` grep finds only the bounded throughput window and two error lists.
+>   - The heap _snapshot_ did grow (71 → 432 MB), all of it `blink::AXObjectCacheImpl::AXDirtyObject`: DevTools had turned on the accessibility tree (via `take_snapshot`) and nothing consumed its updates. A clean tab driven only by script stayed at 5.1 → 5.4 MB over 2 min at max load. So this is a measurement artifact, not an app leak.
+> - **9.3, error path:** covered by E2E `init-error` (a 404 on the Wasm shows "HTTP 404" and Retry recovers), in CI and against the live site. The message now names the URL once.
+> - **9.4, background tab:** headless Chrome never hides a tab, so the page was frozen for 30 s through CDP instead (`Page.setWebLifecycleState`). 59 batches over the 30 s (nominal 2/s), then 4 in the next 2 s: no catch-up burst, and the totals continued.
+> - **9.5, traceability:** the README's "Requirements coverage" section maps R1–R24 to their specs or manual checks.
+> - **Fixed along the way** (`05d0d14`): a batch that lands after Pause no longer brings the measured rate back while paused.
+> - **Still open (minor):** the measured rate is recalculated only when a snapshot arrives, so a stalled worker would keep showing the last value instead of 0.
+
 **Final gate (Definition of Done):**
 
 1. `npm run verify` exit 0 locally and in CI.

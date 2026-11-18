@@ -143,6 +143,38 @@ Every threshold is a hard failure, and deploy is blocked unless all gates are gr
   an intended UI change: `npm run build:pages && npm run e2e:update-snapshots`, then review and
   commit the PNGs.
 
+## Requirements coverage
+
+Every requirement (R1–R24, see `docs/IMPLEMENTATION_PLAN.md`) has passing automated tests, or a
+recorded manual check where only a browser can show it.
+
+| ID  | Requirement                                                                  | Covered by                                                                                                  |
+| --- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| R1  | Dashboard and Settings pages, with navigation                                | `app.routes.spec.ts`, `app.spec.ts`, E2E `navigation`, `settings`                                           |
+| R2  | One row per instrument, 5 metrics                                            | `metrics.spec.ts`, `metrics-table.spec.ts`, E2E `dashboard`                                                 |
+| R3  | Cumulative volume/VWAP, each trade once, book qty excluded                   | `metrics.spec.ts`, `producer-store.integration.spec.ts`                                                     |
+| R4  | Unavailable values and volume 0 before data; zero denominator ⇒ unavailable  | `metrics.spec.ts`, `market-format.spec.ts`, `metrics-table.spec.ts`                                         |
+| R5  | Currency prices; imbalance in [−1, +1]                                       | `market-format.spec.ts`, `market-format-pipes.spec.ts`, E2E `dashboard`                                     |
+| R6  | Pause/Resume, totals kept, no catch-up                                       | `producer-engine.spec.ts`, `producer-store.spec.ts`, E2E `pause-resume`; manual: 30 s CDP freeze (no burst) |
+| R7  | Producer status                                                              | `producer-status.spec.ts`, `pill.spec.ts`, `app.spec.ts`                                                    |
+| R8  | Settings form: 3 integer fields, defaults and ranges                         | `producer-settings.spec.ts`, `settings-schema.spec.ts`, `settings.spec.ts`, E2E `settings`                  |
+| R9  | Editing doesn't apply; Apply starts a new run, clears totals, also if paused | `settings.spec.ts`, `producer-store.spec.ts`, E2E `settings`                                                |
+| R10 | Starts with defaults, running                                                | `producer-store.spec.ts`, E2E `dashboard`                                                                   |
+| R11 | Navigation keeps the run and its state; one producer only                    | `producer-store.integration.spec.ts`, `app.integration.spec.ts` (worker factory count), E2E `navigation`    |
+| R12 | Old-run results never overwrite the new run                                  | `producer-store.spec.ts`, `producer-engine.spec.ts`, `producer-engine-ordering.spec.ts`                     |
+| R13 | Wasm generates trades + quotes; randomness and price logic in Wasm           | Rust `model::`, `rng::` tests; lint ban on `Math.random`; `wasm:verify` (exports, no imports)               |
+| R14 | Per-instrument state, exact batch sizes, prices evolve                       | Rust `producer::` tests, `wasm-tests/producer.wasm.test.ts`                                                 |
+| R15 | Invariants: price > 0, bid < ask, qty > 0, trade at bid or ask               | Rust `model::tests::every_update_satisfies_the_market_invariants`, `producer.wasm.test.ts` (50 000 updates) |
+| R16 | Wasm runs in a Web Worker                                                    | `producer-tokens.spec.ts`, lint rule (only `WORKER_FACTORY` may call `new Worker`), all E2E specs           |
+| R17 | Integer cents; rounding only for display                                     | `metrics.spec.ts`, `market-format.spec.ts`                                                                  |
+| R18 | No event history; every trade counted                                        | `metrics.spec.ts`; manual: 5 min at max load, JS heap +0.25 MB after GC                                     |
+| R19 | Usable at 20 000 updates/s                                                   | Manual (Chrome trace, 50/1000/50): 0 long tasks, measured rate within ±10 %, batch work p99 0.09 ms         |
+| R20 | Clear init errors; resources cleaned up                                      | `producer-engine.spec.ts`, `producer-store-lifecycle.spec.ts`, `wasm-generator.spec.ts`, E2E `init-error`   |
+| R21 | Unit tests for metrics, settings, pause/resume, stale runs, generator        | The suites above; `npm run test:pyramid` (unit ≥ 60 %)                                                      |
+| R22 | Fixed inputs, controllable time, no long waits                               | `ManualScheduler`, seeded RNG, fake worker; the AAA lint rule                                               |
+| R23 | Public repo, README, incremental history                                     | This README; one conventional commit per plan step                                                          |
+| R24 | Every push builds; `main` redeploys; live demo                               | `.github/workflows/ci-deploy.yml`, `scripts/smoke-deploy.mjs`, E2E `@smoke` on the live URL                 |
+
 ## Known limits
 
 - **Number precision (D5):** `Σ price × qty` is a float64 that stays an exact integer below 2^53.
