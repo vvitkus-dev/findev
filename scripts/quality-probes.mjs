@@ -293,6 +293,66 @@ let dupLines;
 const dupPadding = () => (dupLines ??= Math.ceil(sourceLines() * 0.05));
 
 /** @type {{ name: string, run: () => { ok: boolean, detail: string } }[]} */
+// A static server for the smoke probes: serves `dir` under /findev/ (like GitHub Pages), with
+// real content types and 404.html as the not-found page, then runs smoke-deploy against it.
+const SMOKE_SERVER = `
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+const [dir, ...extra] = process.argv.slice(1);
+const TYPES = { wasm: 'application/wasm', js: 'text/javascript', html: 'text/html' };
+const server = createServer(async (req, res) => {
+  const path = req.url.replace(/^\\/findev\\//, '').split('?')[0] || 'index.html';
+  const send = (status, file) =>
+    readFile(join(dir, file)).then((body) => {
+      res.writeHead(status, { 'content-type': TYPES[file.split('.').pop()] ?? 'text/plain' });
+      res.end(body);
+    });
+  await send(200, path).catch(() => send(404, '404.html')).catch(() => {
+    res.writeHead(404, { 'content-type': 'text/plain' });
+    res.end('not found');
+  });
+});
+server.listen(0, '127.0.0.1', () => {
+  const url = 'http://127.0.0.1:' + server.address().port + '/findev/';
+  spawn('node', ['scripts/smoke-deploy.mjs', url, ...extra], { stdio: 'inherit' }).on('exit', (code) => {
+    server.close();
+    process.exit(code ?? 1);
+  });
+});
+`;
+const SHELL =
+  '<!doctype html><app-root></app-root><script src="main-ABC.js" type="module"></script>';
+const GOOD_DEPLOY = {
+  'index.html': SHELL,
+  '404.html': SHELL,
+  'main-ABC.js': 'const BUILD = "abc1234";',
+  'wasm/producer.wasm': '\0asm\x01\0\0\0',
+};
+
+/** smoke-deploy against a fake deploy (`GOOD_DEPLOY` with `changes`; null deletes a file). */
+const smokeProbe = (name, expectCode, expectText, changes, extraArgs = []) => ({
+  name,
+  run: () => {
+    const dir = mkdtempSync(join(tmpdir(), 'smoke-probe-'));
+    try {
+      for (const [file, body] of Object.entries({ ...GOOD_DEPLOY, ...changes })) {
+        if (body === null) continue;
+        mkdirSync(dirname(join(dir, file)), { recursive: true });
+        writeFileSync(join(dir, file), body);
+      }
+      const r = run('node', ['--input-type=module', '-e', SMOKE_SERVER, dir, ...extraArgs]);
+      return {
+        ok: r.code === expectCode && r.out.includes(expectText),
+        detail: `exit=${r.code}${r.code === expectCode ? '' : `\n${r.out}`}`,
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+});
+
 const PROBES = [
   // Q0.7 — duplication
   {
@@ -437,6 +497,24 @@ pub fn deep(v: &[u32]) -> u32 {
       'trade_qty: rng.below(MAX_TRADE_QTY),',
     ),
   ),
+  // smoke-deploy (Implementation step 8.4/8.5): the post-deploy check must catch a broken deploy.
+  smokeProbe('smoke-deploy fails when the wasm is missing', 1, 'FAIL  wasm is served', {
+    'wasm/producer.wasm': null,
+  }),
+  smokeProbe('smoke-deploy fails without the SPA 404.html fallback', 1, 'FAIL  deep link', {
+    '404.html': null,
+  }),
+  smokeProbe(
+    'smoke-deploy fails when the live bundle is an older build',
+    1,
+    'does not contain def5678',
+    {},
+    ['--sha', 'def5678'],
+  ),
+  smokeProbe('ALLOWED: smoke-deploy passes a complete deploy of the expected build', 0, 'OK', {}, [
+    '--sha',
+    'abc1234',
+  ]),
   // deps:age — supply-chain gate (vitest 5.1.0 was published 2026-11-02).
   depsProbe('deps:age rejects a version range', 1, 'is not an exact version', [
     { vitest: '^5.0.0' },
@@ -495,8 +573,11 @@ pub fn deep(v: &[u32]) -> u32 {
   ),
 ];
 
+// Optional filter: `node scripts/quality-probes.mjs smoke-deploy` runs only matching probes.
+const only = process.argv[2];
+const selected = PROBES.filter((p) => !only || p.name.includes(only));
 let failed = 0;
-for (const p of PROBES) {
+for (const p of selected) {
   const { ok, detail } = p.run();
   if (!ok) failed++;
   console[ok ? 'log' : 'error'](`${ok ? 'PASS' : 'FAIL'}  ${p.name} (${detail})`);
@@ -504,6 +585,6 @@ for (const p of PROBES) {
 console.log(
   failed
     ? `\n${failed} probe(s) failed`
-    : `\nAll ${PROBES.length} quality probes behaved as expected`,
+    : `\nAll ${selected.length} quality probes behaved as expected`,
 );
 process.exit(failed ? 1 : 0);

@@ -1,0 +1,126 @@
+# CI + deploy (Implementation Phase 8, Quality gates Q4.2).
+# Every push and PR runs every gate; only a push to main deploys, and only when all are green.
+# Actions are pinned to commit SHAs of releases at least 14 days old (same rule as npm deps).
+name: CI / Deploy
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  static:
+    name: Static checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # format, lint, types, duplication, dead code, audit, dependency age
+      - run: npm run static
+
+  self-test:
+    name: Gate self-test (probes)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # rustup is preinstalled on the runner; with no arguments it installs the rust-toolchain.toml pin.
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: wasm/producer
+      - run: cargo llvm-cov --version || cargo install cargo-llvm-cov --version 0.9.1 --locked
+      - run: npm ci
+      # The hook probes commit inside a throwaway worktree, so git needs an identity.
+      - run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      # Proves each gate still fires: lint, quality (jscpd, coverage, Rust, wasm, smoke), hook probes.
+      - run: npm run quality:self-test
+
+  test:
+    name: Tests + build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: wasm/producer
+      - run: cargo llvm-cov --version || cargo install cargo-llvm-cov --version 0.9.1 --locked
+      - run: npm ci
+      - run: npm run test:rust
+      - run: npm run test:rust:mutants
+      - run: npm run cov:rust
+      - run: npm run wasm:build
+      - run: npm run wasm:verify
+      - run: npm run test:wasm
+      - run: npm run test:ci
+      - name: Production build for GitHub Pages
+        env:
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          npx ng build --base-href "/$REPO/" --define "BUILD_SHA='${GITHUB_SHA::7}'"
+          # SPA fallback: Pages serves 404.html for deep links such as /settings.
+          cp dist/findev/browser/index.html dist/findev/browser/404.html
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          path: dist/findev/browser
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: [static, self-test, test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+  smoke:
+    name: Smoke-test the live site
+    needs: deploy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      # Retries for up to 5 minutes while the Pages CDN switches to the new build.
+      - run: node scripts/smoke-deploy.mjs "${{ needs.deploy.outputs.page_url }}" --sha "${GITHUB_SHA::7}" --timeout 300
