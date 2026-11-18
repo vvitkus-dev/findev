@@ -135,6 +135,13 @@ const PROBES = [
     code: "describe('d', () => {\n  it('x', () => {\n    const v = Number('1');\n    if (v > 0) {\n      expect(v).toBe(1);\n    }\n  });\n});\n",
     expect: ['vitest/no-conditional-in-test'],
   },
+  // Q0.6 — AAA sections
+  {
+    name: 'test without AAA sections',
+    file: P + 'aaa.spec.ts',
+    code: "describe('d', () => {\n  it('x', () => {\n    expect(1).toBe(1);\n  });\n});\n",
+    expect: ['local/aaa-sections'],
+  },
   // Negative probes — legitimate code must stay clean (no false positives)
   {
     name: 'ALLOWED: feature imports its own subfolder and core',

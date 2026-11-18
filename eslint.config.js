@@ -6,6 +6,9 @@ const tseslint = require('typescript-eslint');
 const angular = require('angular-eslint');
 const sonarjs = require('eslint-plugin-sonarjs');
 const vitest = require('@vitest/eslint-plugin');
+const aaaSections = require('./eslint-rules/aaa-sections.js');
+
+const local = { rules: { 'aaa-sections': aaaSections } };
 
 // ---- Architecture & API bans (Q0.4) ---------------------------------------
 // Flat config REPLACES (not merges) a rule set in an earlier block, so every block
@@ -131,9 +134,10 @@ module.exports = defineConfig([
   // ---- Test hygiene (Q0.5) ------------------------------------------------
   {
     files: ['**/*.spec.ts', '**/*.test.ts'],
-    plugins: { vitest },
+    plugins: { vitest, local },
     rules: {
       ...vitest.configs.recommended.rules,
+      'local/aaa-sections': 'error', // Q0.6
       'vitest/no-focused-tests': 'error',
       'vitest/no-disabled-tests': 'error',
       'vitest/no-commented-out-tests': 'error',
