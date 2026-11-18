@@ -538,6 +538,25 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 > - **Coverage:** **100 %** statements, branches, functions and lines.
 > - **Dependency fix found along the way:** installing coverage exposed a supply-chain problem, fixed in a separate commit (`build(deps)`, see the supply-chain gate note in QUALITY_GATES_PLAN).
 
+> **2.2 status (2026-11-18): done.**
+>
+> - **`symbols.ts`:** a frozen list of 50 fictional tickers (Greek letters, then NATO words), starting `ALFA, BETA`.
+> - **Spec (5 tests):** length 50, which equals `SETTINGS_LIMITS.instrumentCount.max`; all unique; all match `/^[A-Z]{4}$/`; the order starts `ALFA, BETA`; the list is frozen.
+>
+> **2.3 status (2026-11-18): done.**
+>
+> - **Files:**
+>   - `record-layout.ts`: `RECORD_WORDS` and `FIELD` offsets, mirroring Rust `Update::words()`.
+>   - `protocol.model.ts`: `InstrumentAccumulatorDto` only for now; Phase 3 adds the message types, because knip rejects unused exports.
+>   - `metrics.model.ts`: `InstrumentMetrics`.
+>   - `metrics.ts`:
+>     - `createAccumulators`: count 1–50, otherwise `RangeError`;
+>     - `applyBatch`: O(n), no allocation, throws on an index out of range or `n` larger than the buffer;
+>     - `deriveMetrics`: `null` for an empty book, zero volume or a missing quote.
+> - **Spec (17 tests):** every plan check passes: the worked example, empty state, a zero book giving `null`, isolation, book quantity never counted in volume, applying a batch twice doubling the sums exactly, O(instruments) after 10,000 updates, and the exact notional at `MAX_SAFE_INTEGER`. Extra tests cover imbalance at ±1/0, `n` smaller than the buffer, and the three error paths.
+> - **Coverage:** 100 % lines and 95.7 % branches. The uncovered branch is the `?? 0` that `noUncheckedIndexedAccess` requires after an explicit bounds check.
+> - **Notional limit:** `notionalCents` is a `number`. It stays exact up to 2^53; at the worst case (20,000 updates/s, all on one instrument) that bound is reached after about 100 hours.
+
 **Phase 2 gate:** `npx ng test --watch=false` and `npm run test:wasm` exit 0; coverage of `metrics.ts`, `producer-settings.ts`, `market-format.ts` ≥ 95 % lines (`ng test --coverage`).
 
 ---
