@@ -1,112 +1,161 @@
-# Quality Gates Plan — static & dynamic controls
+# Quality Gates Specification
 
-> Companion to `docs/IMPLEMENTATION_PLAN.md`. Defines **how AI-generated (and human) code is kept high-quality**: every control is a tool with a configured threshold, a command with a deterministic pass/fail, and a place where it runs (editor/agent hook → pre-commit → CI → deploy gate).
+> Companion to `docs/IMPLEMENTATION_PLAN.md`. This spec defines how code in this repo, whether
+> written by AI or by hand, is kept high-quality. Every requirement has a measurable threshold,
+> one command with a deterministic pass/fail, and a place where it runs (agent hook → pre-commit
+> → pre-push → CI → deploy gate).
 
----
-
-## 0. Source analysis (the two reference slides)
-
-### Slide 1 — "How do you keep FE code quality high when working with AI?"
-
-| Category    | Item on slide                                | Interpretation for this repo                                                                                                                        |
-| ----------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Static**  | TypeScript                                   | Maximum compiler strictness for app, specs, worker and Node test code; Angular `strictTemplates` + extended diagnostics as errors                   |
-|             | Linter                                       | ESLint (flat config) with `angular-eslint` (TS + templates + a11y), `typescript-eslint` strict type-checked rules, Vitest rules; Rust `clippy`      |
-|             | Static code analysis → cyclomatic complexity | Hard thresholds: ESLint `complexity`, SonarJS `cognitive-complexity`, Angular template `cyclomatic-complexity`; Rust `clippy::cognitive_complexity` |
-|             | Static code analysis → code duplication      | `jscpd` over TS/HTML/SCSS/Rust with a % threshold                                                                                                   |
-| **Dynamic** | Unit tests                                   | Vitest (`ng test`) + `cargo test`                                                                                                                   |
-|             | Integration tests                            | Real collaborators wired together (engine + real Wasm; store + real components + real router)                                                       |
-|             | End-to-end tests                             | Playwright against the production build (and against the live deploy as a smoke)                                                                    |
-
-### Slide 2 — "AI generates hundreds of lines & massive PRs — what's your approach to FE testing?"
-
-| Item on slide                         | Interpretation                                                                                                                                                                                    |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **AAA pattern**                       | Every test is Arrange → Act → Assert (Angular zoneless variant: Arrange → Act → `await whenStable()` → Assert). Enforced by lint rules + a local ESLint rule (see Q1.6).                          |
-| **Test coverage ⇒ 65 % / 85 %**       | Two-tier thresholds: **≥ 65 % global floor** for the whole app, **≥ 85 % for critical logic** (`core/producer/**`, `shared/format/**`, Rust generator). Build fails below either.                 |
-| **Testing pyramid vs ice-cream cone** | Target a pyramid (many fast unit tests, fewer integration, very few E2E). The **ice-cream cone (E2E-heavy) is the anti-pattern** to avoid. Enforced by a test-count ratio check (Q4.1).           |
-| **Unit / Integration / E2E**          | Same three layers as slide 1, with explicit counts and locations (§3).                                                                                                                            |
-| **Boxed layout with one red panel**   | Read as **visual regression testing**: page screenshots compared to baselines, with the changed region highlighted. Implemented with Playwright `toHaveScreenshot` on stable regions only (Q3.4). |
-
-### Derived principle for AI-generated code
-
-AI output volume is high, so **review effort must be shifted to machines**: anything that can be checked deterministically is checked automatically, as early as possible (agent hook → commit hook → CI), and **deploy is blocked unless every gate is green**. Human review then focuses on design and intent.
+**Conventions.** Requirement IDs are `QG-n`. Implementation steps are `Qp.s` (phase.step) and
+name the requirements they satisfy. **SHALL** marks a hard requirement; a gate either passes or
+blocks. Status: ✅ done and verified · ⏳ open · ◻ optional.
 
 ---
 
-## 1. Tool selection & trade-offs
+## 1. Purpose and principle
 
-| Control                    | Options considered                                                                            | Choice                                    | Why                                                                                                                                                                                |
-| -------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Type safety                | TS `strict` only · **strict + extra flags + strictTemplates + extendedDiagnostics as errors** | **Max strictness**                        | Cheapest bug filter for generated code; compile-time, zero runtime cost                                                                                                            |
-| Linter                     | **ESLint + angular-eslint** · Biome · oxlint                                                  | **ESLint + angular-eslint 22**            | Only option that lints Angular **templates** (control flow, a11y, template complexity) and supports type-aware rules. Biome/oxlint are faster but have no Angular template support |
-| Complexity                 | ESLint core `complexity` · **+ `sonarjs/cognitive-complexity`** · SonarCloud                  | **ESLint core + SonarJS + template rule** | Cyclomatic (paths) and cognitive (readability) measure different things; both local, deterministic, editor-visible. SonarCloud = optional dashboard (Q5)                           |
-| Duplication                | **jscpd** · SonarCloud CPD · PMD-CPD                                                          | **jscpd**                                 | npm-native, multi-language (TS, HTML, SCSS, Rust), threshold → exit code, HTML report                                                                                              |
-| Dead code                  | **knip** · ts-prune (archived)                                                                | **knip**                                  | Finds unused files/exports/deps — typical leftover of AI iterations                                                                                                                |
-| Formatting                 | **Prettier** (already present)                                                                | Prettier                                  | Removes style noise from AI diffs                                                                                                                                                  |
-| Unit/integration runner    | **Vitest via `@angular/build:unit-test`**                                                     | (existing)                                | Already scaffolded; native coverage thresholds                                                                                                                                     |
-| Coverage                   | **`@vitest/coverage-v8`** · istanbul                                                          | **v8**                                    | Fast, no instrumentation build step; per-glob thresholds via `runnerConfig`                                                                                                        |
-| Rust coverage              | **cargo-llvm-cov** · tarpaulin                                                                | **cargo-llvm-cov**                        | Precise LLVM source-based coverage, works on macOS + Linux                                                                                                                         |
-| E2E                        | **Playwright** · Cypress                                                                      | **Playwright**                            | Native Web Worker support, auto-wait, `toHaveScreenshot`, trace viewer, request interception for error-path tests, single dependency                                               |
-| Accessibility (dynamic)    | **@axe-core/playwright**                                                                      | axe                                       | Cheap add-on to E2E; zero serious/critical violations                                                                                                                              |
-| Visual regression          | **Playwright snapshots** · Chromatic/Percy                                                    | **Playwright snapshots**                  | No external SaaS/account; baselines generated in the same Linux image CI uses                                                                                                      |
-| Local hooks                | **husky + lint-staged + commitlint** · lefthook                                               | **husky + lint-staged + commitlint**      | Ubiquitous, npm-only; commitlint also enforces the "no AI attribution in commits" rule                                                                                             |
-| Agent-loop hooks           | **Claude Code `PostToolUse` hook**                                                            | yes                                       | Lint/format feedback on every file the agent edits — errors surface _during_ generation, not at PR time                                                                            |
-| Mutation testing (stretch) | **StrykerJS (vitest runner)**                                                                 | stretch                                   | Proves tests actually assert (coverage alone can be gamed by AI-written assertion-free tests)                                                                                      |
+AI produces code in high volume, so **review effort moves to machines**:
+
+1. Everything that can be checked deterministically **SHALL** be checked automatically, as early
+   as possible (agent hook → commit hook → push hook → CI).
+2. Deploy **SHALL** be blocked unless every gate is green.
+3. Every gate **SHALL** be proven to fire by a probe (a silently misconfigured linter is the most
+   common failure).
+4. Thresholds **SHALL NOT** be lowered to make code pass. Raising them is allowed; lowering one
+   needs an explicit `chore(quality): lower threshold — <reason>` commit.
+
+Human review then focuses on design and intent.
 
 ---
 
-## 2. Gate matrix (where each control runs)
+## 2. Requirements
 
-| Control                                           | Agent hook (per edit) | pre-commit            | pre-push           | CI `static`   | CI `test` | CI `e2e`     | Blocks deploy |
-| ------------------------------------------------- | --------------------- | --------------------- | ------------------ | ------------- | --------- | ------------ | ------------- |
-| Prettier                                          | ✅ (file)             | ✅ (staged)           |                    | ✅            |           |              | ✅            |
-| ESLint (TS + templates + complexity + boundaries) | ✅ (file)             | ✅ (staged)           |                    | ✅            |           |              | ✅            |
-| Type-check (app/spec/worker/node)                 |                       |                       | ✅                 | ✅            |           |              | ✅            |
-| jscpd duplication                                 |                       |                       |                    | ✅            |           |              | ✅            |
-| knip dead code                                    |                       |                       |                    | ✅            |           |              | ✅            |
-| clippy + rustfmt                                  |                       | ✅ (if `*.rs` staged) |                    | ✅            |           |              | ✅            |
-| npm audit (prod deps, high+)                      |                       |                       |                    | ✅            |           |              | ✅            |
-| commitlint (conventional, no AI attribution)      |                       | commit-msg            |                    | ✅ (PR range) |           |              | —             |
-| Unit + integration + coverage 65/85               |                       |                       | ✅ (`verify:fast`) |               | ✅        |              | ✅            |
-| Rust tests + llvm-cov ≥ 85 %                      |                       |                       |                    |               | ✅        |              | ✅            |
-| Wasm ABI tests (Node)                             |                       |                       |                    |               | ✅        |              | ✅            |
-| Test pyramid ratio                                |                       |                       |                    |               | ✅        |              | ✅            |
-| E2E + axe + visual                                |                       |                       |                    |               |           | ✅           | ✅            |
-| Post-deploy smoke E2E on live URL                 |                       |                       |                    |               |           | after deploy | (alerts)      |
+### 2.1 Static
+
+| ID    | Requirement                                                                                                                                                    | Threshold                                                                    | Verified by                      | Steps       | Status |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------- | ----------- | ------ |
+| QG-1  | App, spec, worker and Node test code **SHALL** compile under maximum TS strictness, with Angular `strictTemplates` and extended diagnostics as errors.         | 0 errors                                                                     | `npm run lint:types`, `ng build` | Q0.1        | ✅     |
+| QG-2  | TS, templates (incl. a11y) and tests **SHALL** lint clean with type-aware rules.                                                                               | 0 errors, 0 warnings                                                         | `npm run lint`                   | Q0.2, Q0.5  | ✅     |
+| QG-3  | Functions and templates **SHALL** stay within complexity limits.                                                                                               | TS cyclomatic ≤ 10, cognitive ≤ 15; template cyclomatic ≤ 8, conditional ≤ 4 | `npm run lint`                   | Q0.3        | ✅     |
+| QG-4  | Code units **SHALL** stay within size limits.                                                                                                                  | function ≤ 60 lines, file ≤ 300 lines (specs 600), params ≤ 4, depth ≤ 3     | `npm run lint`                   | Q0.3        | ✅     |
+| QG-5  | Rust **SHALL** pass clippy `all` + `pedantic` with no `unwrap`/`expect`/`panic`/`todo` outside tests, and be rustfmt-clean.                                    | cognitive ≤ 7, nesting ≤ 4, ≤ 60 lines and ≤ 4 args per function             | `npm run test:rust`              | Q0.9        | ✅     |
+| QG-6  | Architecture rules **SHALL** be lint errors that `eslint-disable` cannot switch off: import boundaries, framework-free `engine/`, banned APIs (see Q0.4).      | 0 violations                                                                 | `npm run lint`, lint probes      | Q0.4, Q1.5  | ✅     |
+| QG-7  | Every `eslint-disable` **SHALL** carry a `-- reason`.                                                                                                          | 0 undescribed disables                                                       | `npm run lint`                   | Q1.5        | ✅     |
+| QG-8  | Duplicated code **SHALL** stay under the limit across TS, HTML, SCSS and Rust.                                                                                 | ≤ 3 % (min 50 tokens)                                                        | `npm run dup`                    | Q0.7        | ✅     |
+| QG-9  | The repo **SHALL** contain no unused files, exports or dependencies.                                                                                           | 0 findings                                                                   | `npm run deadcode`               | Q0.8        | ✅     |
+| QG-10 | Production dependencies **SHALL** have no known high/critical vulnerabilities; every direct dependency **SHALL** be pinned exactly to a release ≥ 14 days old. | 0 high+ advisories; 0 ranges, 0 young releases, 0 lockfile drift             | `npm run audit`, `deps:age`      | Q0.10, Q2.0 | ✅     |
+| QG-11 | Formatting **SHALL** be canonical.                                                                                                                             | 0 unformatted files                                                          | `npm run format:check`           | Q0.11       | ✅     |
+
+### 2.2 Tests
+
+| ID    | Requirement                                                                                                                                     | Threshold                                                    | Verified by                          | Steps      | Status |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------ | ---------- | ------ |
+| QG-12 | Every test **SHALL** follow Arrange → Act → Assert, with exactly one `// Act` (Angular's `await fixture.whenStable()` belongs to Act).          | 0 violations                                                 | `local/aaa-sections` lint rule       | Q0.6       | ✅     |
+| QG-13 | Tests **SHALL** be deterministic: no focused/skipped tests, no conditionals, no real-time sleeps in unit/integration tests; every test asserts. | 0 violations                                                 | Vitest lint rules                    | Q0.5       | ✅     |
+| QG-14 | Line, branch, function and statement coverage **SHALL** meet two tiers; files no test loads **SHALL** count.                                    | global ≥ 65 %; `core/producer/**`, `shared/format/**` ≥ 85 % | `npm run test:ci`                    | Q2.1, Q2.2 | ✅     |
+| QG-15 | Rust line and function coverage **SHALL** meet the critical tier.                                                                               | ≥ 85 %                                                       | `npm run cov:rust`                   | Q2.3       | ✅     |
+| QG-16 | Tests **SHALL** detect injected bugs.                                                                                                           | TS mutation score ≥ 80 %; every Rust mutant killed           | `test:mutation`, `test:rust:mutants` | Q5.0, Q5.1 | ✅     |
+| QG-17 | The suite **SHALL** have unit, integration and E2E layers (§4.1).                                                                               | integration ≥ 3                                              | `npm run test:pyramid`               | Q2.4, Q3.2 | ✅     |
+| QG-18 | The suite **SHALL** be a pyramid, not an ice-cream cone.                                                                                        | E2E ≤ 10 % of tests, unit ≥ 60 %                             | `npm run test:pyramid`               | Q4.1       | ✅     |
+| QG-19 | Both pages and the error banner **SHALL** have no serious or critical WCAG 2.0/2.1 A/AA violations.                                             | 0                                                            | axe spec in `npm run e2e`            | Q3.3       | ✅     |
+| QG-20 | Visual changes to stable regions **SHALL** fail against committed baselines rendered in the pinned CI image.                                    | ≤ 100 differing pixels                                       | `@visual` specs in `npm run e2e`     | Q3.4       | ✅     |
+| QG-21 | The live deploy **SHALL** be smoke-tested after every deploy.                                                                                   | new SHA served; `@smoke` specs green                         | CI `smoke`, `smoke-e2e` jobs         | Q3.5       | ✅     |
+
+### 2.3 Process
+
+| ID    | Requirement                                                                                                  | Threshold                                | Verified by                       | Steps      | Status |
+| ----- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------- | --------------------------------- | ---------- | ------ |
+| QG-22 | Every file the agent edits **SHALL** be formatted and linted immediately, with errors fed back to the agent. | blocking on ESLint errors                | `PostToolUse` hook                | Q1.4       | ✅     |
+| QG-23 | Commits **SHALL** pass lint-staged and use conventional messages without AI attribution.                     | pre-commit + commit-msg exit 0           | husky, lint-staged, commitlint    | Q1.1, Q1.2 | ✅     |
+| QG-24 | Pushes **SHALL** pass `verify:fast`.                                                                         | exit 0                                   | husky pre-push                    | Q1.3       | ✅     |
+| QG-25 | CI **SHALL** run every gate on every push and deploy only from `main` when all gate jobs are green.          | deploy `needs` every gate job            | `.github/workflows/ci-deploy.yml` | Q4.2       | ✅     |
+| QG-26 | Pull requests **SHALL** stay reviewable.                                                                     | ≤ 600 changed lines (generated excluded) | CI `pr-size` job                  | Q4.3       | ✅     |
+| QG-27 | Every gate **SHALL** have a probe that proves it fires, plus negative probes against false positives.        | all probes pass                          | `npm run quality:self-test`       | all        | ✅     |
+| QG-28 | The README **SHALL** document the gates: controls, thresholds, commands, how to update visual baselines.     | each `static`/`verify` script named      | grep on `README.md`               | Q4.4       | ⏳     |
+| QG-29 | An external dashboard **MAY** mirror the local gates; local tools stay the source of truth.                  | Quality Gate "Passed"                    | SonarCloud                        | Q5.2       | ◻      |
 
 ---
 
-## 3. Test strategy (pyramid, AAA, coverage)
+## 3. Design decisions
 
-### 3.1 Pyramid targets for this project
+| Control                 | Options considered                                                                            | Choice                                    | Rationale                                                                                                                                  |
+| ----------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Type safety             | TS `strict` only · **strict + extra flags + strictTemplates + extendedDiagnostics as errors** | **Max strictness**                        | Cheapest bug filter for generated code; compile-time, zero runtime cost                                                                    |
+| Linter                  | **ESLint + angular-eslint** · Biome · oxlint                                                  | **ESLint + angular-eslint 22**            | Only option that lints Angular **templates** (control flow, a11y, complexity) with type-aware rules; Biome/oxlint have no template support |
+| Complexity              | ESLint `complexity` · **+ `sonarjs/cognitive-complexity`** · SonarCloud                       | **ESLint core + SonarJS + template rule** | Cyclomatic (paths) and cognitive (readability) measure different things; both local, deterministic, editor-visible                         |
+| Duplication             | **jscpd** · SonarCloud CPD · PMD-CPD                                                          | **jscpd**                                 | npm-native, multi-language (TS, HTML, SCSS, Rust), threshold → exit code, HTML report                                                      |
+| Dead code               | **knip** · ts-prune (archived)                                                                | **knip**                                  | Finds unused files/exports/deps, the typical leftover of AI iterations                                                                     |
+| Formatting              | **Prettier**                                                                                  | Prettier                                  | Removes style noise from AI diffs                                                                                                          |
+| Unit/integration runner | **Vitest via `@angular/build:unit-test`**                                                     | (scaffold)                                | Native coverage thresholds                                                                                                                 |
+| Coverage                | **`@vitest/coverage-v8`** · istanbul                                                          | **v8**                                    | Fast, no instrumentation build step; per-glob thresholds via `runnerConfig`                                                                |
+| Rust coverage           | **cargo-llvm-cov** · tarpaulin                                                                | **cargo-llvm-cov**                        | Precise LLVM source-based coverage on macOS and Linux                                                                                      |
+| E2E                     | **Playwright** · Cypress                                                                      | **Playwright**                            | Web Worker support, auto-wait, `toHaveScreenshot`, trace viewer, request interception for error-path tests                                 |
+| Accessibility           | **@axe-core/playwright**                                                                      | axe                                       | Cheap add-on to E2E                                                                                                                        |
+| Visual regression       | **Playwright snapshots** · Chromatic/Percy                                                    | **Playwright snapshots**                  | No external SaaS; baselines rendered in the same Linux image CI uses                                                                       |
+| Local hooks             | **husky + lint-staged + commitlint** · lefthook                                               | **husky + lint-staged + commitlint**      | Ubiquitous, npm-only; commitlint also enforces the "no AI attribution" rule                                                                |
+| Agent-loop hook         | **Claude Code `PostToolUse` hook**                                                            | yes                                       | Errors surface _during_ generation, not at PR time                                                                                         |
+| Mutation testing        | **StrykerJS (Vitest runner)** · custom Rust mutants                                           | both                                      | Coverage can be gamed by assertion-free tests; mutants prove tests assert                                                                  |
 
-| Layer           | Definition here                                                                                  | Location / naming                               | Target count | Runtime budget |
-| --------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------- | ------------ | -------------- |
-| **Unit**        | One module, collaborators faked; pure functions, Rust modules, single components with stub store | `*.spec.ts`, Rust `#[cfg(test)]`                | ~120–180     | < 20 s total   |
-| **Integration** | ≥ 2 real units wired together, only process boundaries faked                                     | `*.integration.spec.ts`, `wasm-tests/*.test.ts` | ~15–25       | < 15 s         |
-| **E2E**         | Real browser, real build, real worker + Wasm                                                     | `e2e/*.e2e.ts`                                  | **5–7**      | < 90 s         |
+---
 
-Planned integration tests:
+## 4. Gate matrix (where each control runs)
 
-- **I1** `producer-engine.integration.spec` (Node): `ProducerEngine` + **real compiled Wasm** + `ManualScheduler` — totals equal an independent sum over the generated words; pause/apply semantics with real generator.
-- **I2** `producer-store.integration.spec`: `ProducerStore` + `FakeWorker` + real `Dashboard`/`Settings` components + `RouterTestingHarness` — apply resets, stale snapshot rejection, navigation keeps the single worker & paused state.
-- **I3** `protocol.integration.spec`: every `FromWorker`/`ToWorker` message survives `structuredClone` deep-equal (catches non-cloneable payloads).
-- **I4** `wasm-tests/producer.wasm.test.ts`: TS adapter + real `.wasm` (already in main plan 2.5).
+| Control                                          | Req.             | Agent hook | pre-commit          | pre-push | CI job               | Blocks deploy |
+| ------------------------------------------------ | ---------------- | ---------- | ------------------- | -------- | -------------------- | ------------- |
+| Prettier                                         | QG-11            | ✅ file    | ✅ staged           | ✅       | `static`             | ✅            |
+| ESLint (TS, templates, complexity, architecture) | QG-2…4, 6, 7, 12 | ✅ file    | ✅ staged           | ✅       | `static`             | ✅            |
+| Type-check (app/spec/worker/Node)                | QG-1             |            |                     | ✅       | `static`             | ✅            |
+| jscpd, knip, audit, deps:age                     | QG-8…10          |            |                     | ✅       | `static`             | ✅            |
+| clippy + rustfmt + cargo test                    | QG-5             |            | ✅ if `*.rs` staged | ✅       | `test`               | ✅            |
+| commitlint                                       | QG-23            |            | commit-msg          |          | —                    | —             |
+| Unit + integration + coverage 65/85              | QG-14, 17        |            |                     | ✅       | `test`               | ✅            |
+| Wasm ABI check + Node suite on real `.wasm`      | QG-17            |            |                     | ✅       | `test`               | ✅            |
+| Rust coverage ≥ 85 %                             | QG-15            |            |                     |          | `test`               | ✅            |
+| Mutation (Stryker + Rust mutants)                | QG-16            |            |                     |          | `test`               | ✅            |
+| Test pyramid ratio                               | QG-18            |            |                     |          | `test`               | ✅            |
+| Gate probes                                      | QG-27            |            |                     |          | `self-test`          | ✅            |
+| E2E + axe + visual                               | QG-17, 19, 20    |            |                     |          | `e2e`                | ✅            |
+| PR size                                          | QG-26            |            |                     |          | `pr-size` (PRs)      | —             |
+| Post-deploy smoke                                | QG-21            |            |                     |          | `smoke`, `smoke-e2e` | (alerts)      |
 
-Planned E2E (Playwright, Chromium):
+`npm run verify` runs every row above locally except the PR-size and post-deploy jobs.
 
-1. Dashboard boots with 5 rows; within 3 s every row has a price, volume > 0, spread > $0.00, imbalance ∈ [−1, +1].
-2. Pause → status "Paused" → volumes unchanged after 1.2 s (> 2 intervals) → Resume → volumes increase.
-3. Settings validation: `0` and `1.5` show errors and disable Apply; valid `10/50/100` → Apply → dashboard shows 10 rows, run #2, totals restarted.
-4. Navigation keeps state: pause → Settings → Dashboard → still paused, same totals.
-5. Init error path: `page.route('**/producer.wasm', 404)` → error banner with message → unroute → Retry → running.
-6. Accessibility: axe on `/dashboard` and `/settings` → 0 serious/critical violations.
-7. Visual: `/settings` full page + dashboard header/status bar (paused, live numeric cells masked).
+---
 
-E2E determinism rules: assertions only on invariants (not exact random values); waits via `expect.poll`/web-first assertions, the single fixed wait (pause stability) is ≤ 1.2 s and documented; retries = 0 locally, 1 in CI with trace on first retry (a retry that passes is reported as flaky in the job summary).
+## 5. Test specification
 
-### 3.2 AAA convention
+### 5.1 Layers
+
+| Layer           | Definition                                                                                       | Location / naming                               | Runtime budget |
+| --------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------- | -------------- |
+| **Unit**        | One module, collaborators faked; pure functions, Rust modules, single components with stub store | `*.spec.ts`, Rust `#[cfg(test)]`                | < 20 s total   |
+| **Integration** | ≥ 2 real units wired together, only process boundaries faked                                     | `*.integration.spec.ts`, `wasm-tests/*.test.ts` | < 15 s         |
+| **E2E**         | Real browser, real Pages-shaped build, real worker + Wasm                                        | `e2e/*.e2e.ts`                                  | < 90 s         |
+
+Integration tests:
+
+- **I1** Node: `ProducerEngine` + **real compiled Wasm** + `ManualScheduler`. Totals equal an independent sum over the generated words; pause/apply semantics with the real generator.
+- **I2** `producer-store.integration.spec`: `ProducerStore` + `FakeWorker` + real `Dashboard`/`Settings` components + `RouterTestingHarness`. Apply resets, stale snapshots are rejected, navigation keeps the single worker and the paused state.
+- **I3** Every `FromWorker`/`ToWorker` message survives `structuredClone` deep-equal.
+- **I4** `wasm-tests/`: TS adapter + real `.wasm`.
+
+E2E scenarios (Playwright, Chromium):
+
+| ID  | Scenario                                                                                                                         | Tag       |
+| --- | -------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| E1  | Dashboard boots with 5 rows; within 3 s every row has a price, volume > 0, spread > $0.00, imbalance ∈ [−1, +1].                 | `@smoke`  |
+| E2  | Pause → status "Paused" → volumes unchanged over the observation window → Resume → volumes increase.                             |           |
+| E3  | Settings validation: `0` and `1.5` show errors and disable Apply; valid `10/50/100` → Apply → 10 rows, run #2, totals restarted. |           |
+| E4  | Navigation keeps state: pause → Settings → Dashboard → still paused, same totals.                                                |           |
+| E5  | Init error: `producer.wasm` answers 404 → error banner with message → unroute → Retry → running.                                 | `@smoke`  |
+| E6  | Accessibility: axe on `/dashboard`, `/settings` with a field error, and the error banner → 0 serious/critical.                   |           |
+| E7  | Visual: `/settings` full page and the paused dashboard, live numeric cells masked.                                               | `@visual` |
+
+**Determinism rules:** assert invariants, never exact random values; wait with `expect.poll` and
+web-first assertions; the only fixed waits are a 200 ms settle after Pause (an in-flight batch is
+accepted by design) and a 1 s observation window; retries 0 locally, 1 in CI with a trace on the
+first retry (a retry that passes is reported as flaky).
+
+### 5.2 AAA convention
 
 ```ts
 it('drops snapshots from a previous run', async () => {
@@ -124,9 +173,10 @@ it('drops snapshots from a previous run', async () => {
 });
 ```
 
-Rules: exactly one `// Act` section per test (one behaviour per test); `// Arrange` may be omitted if empty; no `if`/loops in tests (`vitest/no-conditional-in-test`); every test asserts (`vitest/expect-expect`); Rust tests follow the same comments.
+Rules: exactly one `// Act` per test (one behaviour per test); `// Arrange` may be omitted when
+empty; no `if`/loops in tests; every test asserts; Rust tests use the same comments.
 
-### 3.3 Coverage thresholds (slide: 65 % / 85 %)
+### 5.3 Coverage scopes
 
 | Scope                                                                                                            | statements | branches | functions | lines |
 | ---------------------------------------------------------------------------------------------------------------- | ---------- | -------- | --------- | ----- |
@@ -134,198 +184,117 @@ Rules: exactly one `// Act` section per test (one behaviour per test); `// Arran
 | Critical: `src/app/core/producer/**`, `src/app/shared/format/**`                                                 | 85         | 85       | 85        | 85    |
 | Rust `wasm/producer/src/**` (cargo-llvm-cov)                                                                     | —          | —        | 85        | 85    |
 
-Ratchet policy: thresholds may be raised, never lowered, without an explicit commit message `chore(quality): lower threshold — <reason>`.
+---
+
+## 6. Implementation steps
+
+Each step lists the **work** and a **control check**: a command with an exact expected result.
+Phase Q0 runs before Implementation Phase 1, so all generated code is gated from its first line.
+
+### Phase Q0 — Static baseline (after Implementation Phase 0)
+
+| Step  | Req.       | Work                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Control check                                                                                                                                                          |
+| ----- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Q0.1  | QG-1       | `tsconfig.json`: `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noUnusedLocals`, `noUnusedParameters`, `noImplicitOverride`, `noPropertyAccessFromIndexSignature`, `forceConsistentCasingInFileNames`. `angularCompilerOptions`: `strictTemplates`, `strictInjectionParameters`, `extendedDiagnostics: { defaultCategory: "error" }`. `lint:types` = `tsc --noEmit -p` for the app, spec, worker and `wasm-tests` configs.                                                                                            | `npm run lint:types` exit 0; probe `const a: string[] = []; a[0].length` fails with `TS2532`                                                                           |
+| Q0.2  | QG-2       | `angular-eslint@22` flat config; `typescript-eslint` `strictTypeChecked` + `stylisticTypeChecked`; Angular TS, template and accessibility presets. Key rules: `no-explicit-any`, `no-non-null-assertion`, `no-floating-promises`, `template/prefer-control-flow`, `template/prefer-self-closing-tags`, `prefer-signals`, `no-console` (allow `warn`/`error`). `lint` = `ng lint --max-warnings 0`.                                                                                                                                          | `npm run lint` exit 0; probe `let x: any` → `no-explicit-any`                                                                                                          |
+| Q0.3  | QG-3, QG-4 | `complexity` 10, `max-depth` 3, `max-params` 4, `max-lines-per-function` 60, `max-lines` 300 (specs: function length off, 600 lines); `sonarjs/cognitive-complexity` 15; template `cyclomatic-complexity` 8, `conditional-complexity` 4.                                                                                                                                                                                                                                                                                                    | 12-branch function → `complexity`; 9 nested `@if` → template rule                                                                                                      |
+| Q0.4  | QG-6       | `no-restricted-imports`: (a) `core/producer/engine/**` must not import `@angular/*` or `rxjs` (folder rule, so new files are covered); (b) `core/**` must not import `features/**`; (c) `shared/**` must not import `core/**` or `features/**`; (d) no feature imports another feature. `no-restricted-syntax`: `Math.random` in `core/producer/**`; `@Injectable`; `fixture.detectChanges`/`markForCheck` in specs; `FormGroup`/`FormControl`/`FormBuilder`/`ReactiveFormsModule`. These replace the IMPLEMENTATION_PLAN §4.0 grep guards. | `scripts/lint-probes.mjs` writes one probe per rule into the real folders, plus negative probes that must not fire, lints them, checks rule ids, deletes them → exit 0 |
+| Q0.5  | QG-13      | `@vitest/eslint-plugin` on specs and `wasm-tests/**`: `no-focused-tests`, `no-disabled-tests`, `expect-expect`, `no-identical-title`, `no-conditional-in-test`, `no-standalone-expect`, `max-nested-describe` 2, `consistent-test-it: it`.                                                                                                                                                                                                                                                                                                  | probes `it.only` and an assertion-free test → expected rule ids                                                                                                        |
+| Q0.6  | QG-12      | Local rule `local/aaa-sections`: every `it`/`test` body has `// Act` exactly once and `// Assert` at least once, in order, with `// Arrange` (if present) first. Own `RuleTester` spec.                                                                                                                                                                                                                                                                                                                                                     | RuleTester spec green; probe without `// Act` → `local/aaa-sections`                                                                                                   |
+| Q0.7  | QG-8       | `jscpd` 5 with `.jscpd.json`: threshold 3 %, `minTokens` 50, `minLines` 6, formats TS/markup/SCSS/Rust over `src`, `wasm/producer/src`, `wasm-tests`; specs ignored; reports in `reports/jscpd`. The gate is the % threshold, not single clones. Script `dup`.                                                                                                                                                                                                                                                                              | `npm run dup` exit 0; duplicated 30-line function → exit 1                                                                                                             |
+| Q0.8  | QG-9       | `knip` (entries: `src/main.ts`, the worker, `scripts/*.mjs`, `wasm-tests/**`). Script `deadcode`.                                                                                                                                                                                                                                                                                                                                                                                                                                           | `npm run deadcode` exit 0; unused exported function → non-zero                                                                                                         |
+| Q0.9  | QG-5       | Cargo `[lints]` denies `clippy::all`, `clippy::pedantic`, `unwrap_used`/`expect_used`/`panic`/`todo` outside tests; `clippy.toml` thresholds per QG-5; rustfmt defaults. Delivered with Implementation step 1.1 (needs the crate).                                                                                                                                                                                                                                                                                                          | `npm run test:rust` exit 0; 7 Rust probes in `quality-probes.mjs` read exact lint codes from cargo JSON                                                                |
+| Q0.10 | QG-10      | `audit` = `npm audit --omit=dev --audit-level=high`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | exit 0                                                                                                                                                                 |
+| Q0.11 | QG-11      | Aggregates: `static` = format:check, lint, lint:types, dup, deadcode, audit, deps:age; `verify:fast` = static, test:rust, wasm:build, test:wasm, test:ci; `verify` = everything in §4 that runs locally.                                                                                                                                                                                                                                                                                                                                    | `npm run static` exit 0                                                                                                                                                |
+
+**Q0 exit criteria:** `npm run static` exit 0 **and** `npm run quality:self-test` exit 0.
+
+**Notes.**
+
+- Rust cognitive complexity was lowered from the planned 10 to **7**: clippy's score has no nesting weight (a function 3 loops deep with compound conditions scored 9), so `excessive_nesting` (≤ 4) was added too. Wasm uses `panic = "abort"`, so a panic would trap the worker.
+- `quality:self-test` = `lint:probes` (ESLint probes, incl. false-positive guards) + `test:lint-rules` (AAA RuleTester) + `quality:probes` (jscpd, knip, Rust, coverage, deps:age, mutation).
+
+### Phase Q1 — Local and agent-loop enforcement (right after Q0)
+
+| Step | Req.       | Work                                                                                                                                                                                  | Control check                                                                               |
+| ---- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Q1.1 | QG-23      | `husky` + `lint-staged`: pre-commit runs Prettier + `eslint --fix --max-warnings 0` on staged files; `cargo fmt` + clippy when `*.rs` is staged.                                      | staged lint error → `git commit` exits non-zero                                             |
+| Q1.2 | QG-23      | `commitlint` (`config-conventional`) on commit-msg, plus a rule rejecting Claude/Anthropic mentions and "Generated with …" lines; human `Co-authored-by` stays allowed.               | AI-attributed message → exit 1; `feat(core): add metrics` → exit 0                          |
+| Q1.3 | QG-24      | pre-push runs `npm run verify:fast`.                                                                                                                                                  | push with a failing unit test is rejected locally                                           |
+| Q1.4 | QG-22      | `.claude/settings.json` `PostToolUse` on `Edit\|Write` → `scripts/agent-lint-file.mjs` runs Prettier + ESLint on the edited file; exit 2 on lint errors feeds them back to the agent. | an `any` added through the agent → hook shows `no-explicit-any`                             |
+| Q1.5 | QG-6, QG-7 | `eslint-comments/require-description` + `no-unlimited-disable`; `no-restricted-disable` on architecture rules. `CLAUDE.md` documents commands and thresholds.                         | undescribed `eslint-disable-next-line` → lint error; disabling an architecture rule → error |
+
+**Q1 exit criteria:** `npm run hook:probes` exit 0. It makes real commits and pushes in a throwaway worktree against a temporary bare remote and checks 5 cases: pre-commit blocks a lint error, pre-commit passes a clean file, commit-msg blocks a non-conventional message, commit-msg blocks AI attribution, pre-push blocks a failing test.
+
+### Phase Q2 — Coverage and supply chain (with Implementation Phase 2; tighten through Phase 7)
+
+| Step | Req.  | Work                                                                                                                                                                                                                                                                                     | Control check                                                                            |
+| ---- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Q2.0 | QG-10 | Pin every direct dependency exactly to a release ≥ 14 days old; re-resolve the lockfile with `npm install --before=<date>` so transitive dependencies are old enough too; `.npmrc` `save-exact=true`. `deps:age` fails on ranges, young releases or drift, and names the version to use. | `npm run deps:age` exit 0; 4 probes with a pinned `DEPS_AGE_NOW`                         |
+| Q2.1 | QG-14 | `@vitest/coverage-v8`; `angular.json` test configuration `ci`: `coverage: true`, reporters `text-summary`/`lcov`/`json-summary`/`html` → `coverage/findev`, **`coverageInclude: ["src/app/**/*.ts"]`**, `coverageExclude` per §5.3, global floor 65 %. `test:ci` runs it.                | `npm run test:ci` prints the summary, exit 0                                             |
+| Q2.2 | QG-14 | `runnerConfig: vitest-base.config.mts` adds the 85 % per-glob floors (the builder's own thresholds can't express globs).                                                                                                                                                                 | a probe file breaks **exactly one** floor (glob or global) and forbids the other message |
+| Q2.3 | QG-15 | `cargo-llvm-cov` 0.9.1 (`cargo +1.99.0 install … --locked`); `cov:rust` gates `--fail-under-lines 85 --fail-under-functions 85`, then writes `reports/rust.lcov`. Runs in `verify`, not `verify:fast` (instrumented rebuild is slower).                                                  | `npm run cov:rust` exit 0; probe with 20 untested functions → exit 1 with a `TOTAL` row  |
+| Q2.4 | QG-17 | Integration tests I1–I4 (§5.1) written with Implementation Phases 3–6.                                                                                                                                                                                                                   | `npm run test:pyramid` reports integration ≥ 3                                           |
+
+**Q2 exit criteria:** `npm run test:ci && npm run cov:rust && npm run test:wasm` exit 0.
+
+**Notes.**
+
+- `coverageInclude` made `app.routes.ts` show up at 0 % immediately; untested files count.
+- Coverage probes read thresholds from the scripts and configs themselves, so lowering a threshold also changes what is probed.
+- Rust tests are inline `#[cfg(test)]` modules, which llvm-cov counts, so its numbers run slightly high; the Rust mutation check (Q5.0) is the stronger signal.
+
+### Phase Q3 — E2E, accessibility, visual (after Implementation Phase 7)
+
+| Step | Req.  | Work                                                                                                                                                                                                                                                                                                                          | Control check                                                                 |
+| ---- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Q3.1 | QG-17 | Playwright 1.64.1 (pinned), Chromium only, `e2e/`. The suite runs on the Pages-shaped bundle (`build-pages.mjs`, base `/findev/` + `404.html`) served by `serve-dist.mjs`, which tests the sub-path worker and Wasm URLs. `retries: CI ? 1 : 0`, `trace: "on-first-retry"`, `forbidOnly` in CI.                               | `npx playwright test --list` shows the specs                                  |
+| Q3.2 | QG-17 | Scenarios E1–E5 (§5.1) with role/label locators only; AAA applies (the rule covers `e2e/**/*.e2e.ts` and skips suites and hooks).                                                                                                                                                                                             | `npm run e2e` exit 0, < 90 s                                                  |
+| Q3.3 | QG-19 | Scenario E6 with `@axe-core/playwright`, tags `wcag2a`/`wcag2aa`, serious/critical filtered.                                                                                                                                                                                                                                  | exit 0; a probe page (unnamed button, image without alt) fails                |
+| Q3.4 | QG-20 | Scenario E7: `toHaveScreenshot` with `maxDiffPixels: 100`; masked cells via role/text locators; `e2e/support/screenshot.css` keeps masked values from shifting layout. Baselines rendered by `scripts/e2e-docker.mjs` in the CI image (tag and digest read from the workflow, `linux/amd64`); visual specs run on Linux only. | red `h1` → both specs fail and the diff marks only the heading; revert → pass |
+| Q3.5 | QG-21 | After deploy, `smoke` waits for the new SHA on the live URL, then `smoke-e2e` runs the `@smoke` specs against it.                                                                                                                                                                                                             | CI `smoke` + `smoke-e2e` green                                                |
+
+**Q3 exit criteria:** `npm run e2e` exit 0 locally and in CI; 0 flaky tests over 3 consecutive CI runs.
+
+**Notes.**
+
+- E2E has more tests than scenarios, because the AAA rule allows one Act per test.
+- The planned `maxDiffPixelRatio: 0.01` let a red heading pass (483 px, 0.05 %), so the gate is `maxDiffPixels: 100`; 36 clean runs in the image showed 0 differing pixels.
+- Evidence: locally `--repeat-each 10` and `--repeat-each 5 --workers 12` passed 165/165; CI run 44358492840 was green with 0 retries.
+
+### Phase Q4 — CI integration, pyramid, PR hygiene (with Implementation Phase 8)
+
+| Step | Req.  | Work                                                                                                                                                                                                                                                                                                                                              | Control check                                                   |
+| ---- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Q4.1 | QG-18 | `scripts/test-pyramid.mjs` counts unit (Angular specs + Rust `#[test]`s), integration (`*.integration.spec.ts` + `wasm-tests/`) and E2E tests; asserts the QG-17/QG-18 limits; prints the pyramid to `$GITHUB_STEP_SUMMARY`.                                                                                                                      | exit 0; `--counts` with 50 % E2E → exit 1 ("ice-cream cone")    |
+| Q4.2 | QG-25 | `.github/workflows/ci-deploy.yml` jobs: `static` ∥ `self-test` ∥ `test` (Rust, mutants, coverage, Wasm build/verify/suite, `test:ci`, pyramid, Stryker, Pages build) → `e2e` (pinned Playwright image, on the `test` bundle) → `deploy` (`main` only; needs static, self-test, test, e2e) → `smoke` → `smoke-e2e`. Reports uploaded as artifacts. | broken branch → the matching job is red and `deploy` is skipped |
+| Q4.3 | QG-26 | `.github/pull_request_template.md`; `pr-size` job (pull requests only) runs `scripts/pr-size.mjs`, failing above 600 changed lines excluding generated files ("split the PR").                                                                                                                                                                    | synthetic PR > 600 lines → `pr-size` red                        |
+| Q4.4 | QG-28 | README "Quality gates" section: controls, thresholds, commands, how to update visual baselines.                                                                                                                                                                                                                                                   | README names every script in `static` and `verify`              |
+
+**Q4 exit criteria:** three consecutive green CI runs on `main` with deploy; a deliberately broken branch shows the expected red job for each gate type (static, test, e2e).
+
+### Phase Q5 — Test effectiveness and extras
+
+| Step | Req.  | Work                                                                                                                                                                                                           | Control check                                            |
+| ---- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Q5.0 | QG-16 | `scripts/rust-mutants.mjs`: dependency-free string mutants applied to a temporary copy of the crate; each must make `cargo test` fail. Every new Rust module adds its mutants.                                 | `npm run test:rust:mutants` → "All N mutants killed"     |
+| Q5.1 | QG-16 | StrykerJS 10.1.1 + Vitest runner on a Node-env project (`stryker/vitest.config.mts`) over `metrics`, `producer-settings`, `market-format`; thresholds high 90 / low 80 / break 80. Runs on every push (≈ 5 s). | `npm run test:mutation` score ≥ 80 %; probe < 80 % fails |
+| Q5.2 | QG-29 | SonarCloud fed with lcov + ESLint JSON, as a dashboard only.                                                                                                                                                   | Quality Gate "Passed" badge in README                    |
+
+**Notes.** The first Stryker run scored 89.94 % with 17 survivors. Real gaps were tested (the
+50-instrument bound, error messages, half-filled quotes and books in `deriveMetrics`,
+`formatVolume` rounding); equivalent mutants are marked `// Stryker disable next-line <mutator>: <reason>`.
+Score is now 100 %.
 
 ---
 
-## 4. Implementation phases
+## 7. Risks and mitigations
 
-Each step lists **work** and a **deterministic control check** (command → exact expected result). Phase Q0 runs **before Phase 1 of the implementation plan** so that all generated code is gated from its first line; later Q-phases attach to the implementation phases noted.
-
-### Phase Q0 — Static baseline (insert after Implementation Phase 0)
-
-| Step  | Work                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Control check                                                                                                                                           |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Q0.1  | **TypeScript strictness** in `tsconfig.json`: `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noUnusedLocals`, `noUnusedParameters`, `noImplicitOverride` (exists), `noPropertyAccessFromIndexSignature` (exists), `forceConsistentCasingInFileNames`. `angularCompilerOptions`: `strictTemplates`, `strictInjectionParameters` (exists), `extendedDiagnostics: { defaultCategory: "error" }`. Script `lint:types` = `tsc --noEmit -p` for `tsconfig.app.json`, `tsconfig.spec.json`, `tsconfig.worker.json`, `wasm-tests/tsconfig.json`.                                                                              | `npm run lint:types` exit 0; negative probe: a temp file with `const a: string[] = []; a[0].length` fails with `TS2532` (then deleted)                  |
-| Q0.2  | **ESLint**: `npx ng add angular-eslint@22` (flat `eslint.config.js`). Extend `typescript-eslint` `strictTypeChecked` + `stylisticTypeChecked` (with `parserOptions.projectService`), `angular.configs.tsRecommended`, `angular.configs.templateRecommended`, `angular.configs.templateAccessibility`. Key rules: `@typescript-eslint/no-explicit-any: error`, `no-non-null-assertion: error`, `no-floating-promises: error`, `@angular-eslint/template/prefer-control-flow`, `template/prefer-self-closing-tags`, `@angular-eslint/prefer-signals`, `no-console: error` (allow `warn`/`error`). Script `lint` = `ng lint --max-warnings 0`. | `npm run lint` exit 0 on scaffold; negative probe: `let x: any` in a temp file → `no-explicit-any` error                                                |
-| Q0.3  | **Complexity limits** (ESLint): `complexity: ["error", 10]`, `max-depth: ["error", 3]`, `max-params: ["error", 4]`, `max-lines-per-function: ["error", {max: 60, skipBlankLines: true, skipComments: true}]`, `max-lines: ["error", 300]`; `sonarjs/cognitive-complexity: ["error", 15]` (`eslint-plugin-sonarjs`); templates: `@angular-eslint/template/cyclomatic-complexity: ["error", {maxComplexity: 8}]`, `template/conditional-complexity: ["error", {maxComplexity: 4}]`. Specs override: `max-lines-per-function` off, `max-lines` 600.                                                                                            | Probe file with a 12-branch function → `complexity` error; probe template with 9 nested `@if` → template rule error; `npm run lint` on real code exit 0 |
-| Q0.4  | **Architecture boundaries** via `no-restricted-imports` overrides: (a) everything in `core/producer/engine/**` (the worker-side, framework-free code) must not import `@angular/*` or `rxjs`. This is a folder rule, not a file list, so new files are covered automatically; (b) `core/**` must not import `features/**`; (c) `shared/**` must not import `core/**` or `features/**`; (d) a feature must not import another feature. `no-restricted-syntax`: ban `Math.random` in `core/producer/**`; ban `@Injectable` decorator, `fixture.detectChanges`/`markForCheck` (specs), imports of `FormGroup                                   | FormControl                                                                                                                                             | FormBuilder | ReactiveFormsModule`. These **replace the grep guards** of IMPLEMENTATION_PLAN §4.0 with editor-visible lint errors (greps stay in CI as a backstop). | One probe per rule fails lint with the expected rule id, and **negative probes** confirm that allowed imports don't fire. `scripts/lint-probes.mjs` writes the probes into the real architecture folders, lints them, checks `expect`/`forbid` rule ids, then deletes them → exit 0 |
-| Q0.5  | **Vitest lint** in `**/*.spec.ts`, `wasm-tests/**`: `@vitest/eslint-plugin` recommended + `no-focused-tests`, `no-disabled-tests` (error), `expect-expect`, `no-identical-title`, `no-conditional-in-test`, `no-standalone-expect`, `max-nested-describe: 2`, `consistent-test-it: it`.                                                                                                                                                                                                                                                                                                                                                     | `lint-probes` includes `it.only` and assertion-free test → expected rule ids                                                                            |
-| Q0.6  | **AAA rule**: local ESLint rule `local/aaa-sections` (inline plugin in `eslint.config.js`, ~50 LOC): every `it/test` callback body must contain the comment `// Act` exactly once and `// Assert` at least once, in that order, with `// Arrange` (if present) before `// Act`. Rule has its own spec (`eslint-rules/aaa-sections.spec.ts`, ESLint `RuleTester`).                                                                                                                                                                                                                                                                           | RuleTester spec green; probe without `// Act` → `local/aaa-sections` error                                                                              |
-| Q0.7  | **Duplication**: `jscpd` with `.jscpd.json`: `{"threshold": 3, "minTokens": 50, "minLines": 6, "format": ["typescript","markup","scss","rust"], "path": ["src","wasm/producer/src","wasm-tests"], "ignore": ["**/*.spec.ts","**/node_modules/**"], "reporters": ["console","html","json"], "output": "reports/jscpd", "failOnEmpty": true}` (jscpd 5). The gate is the 3 % threshold. `exitCode` (fail on any single clone) is deliberately not set. Script `dup`. Probes live in `scripts/quality-probes.mjs`.                                                                                                                             | `npm run dup` exit 0; probe: duplicate a 30-line function in a temp file under `src/` → exit 1                                                          |
-| Q0.8  | **Dead code**: `knip` with `knip.json` (entry: `src/main.ts`, `src/app/**/producer.worker.ts`, `scripts/*.mjs`, `wasm-tests/**`; project: `src/**/*.ts`). Script `deadcode` = `knip --no-progress`.                                                                                                                                                                                                                                                                                                                                                                                                                                         | `npm run deadcode` exit 0; probe: unused exported function → non-zero exit                                                                              |
-| Q0.9  | **Rust static**: `wasm/producer/clippy.toml` → `cognitive-complexity-threshold = 10`, `too-many-arguments-threshold = 5`; crate root `#![deny(clippy::all, clippy::pedantic)]`, `#![warn(clippy::cognitive_complexity)]`, `#![deny(unsafe_op_in_unsafe_fn)]`; `rustfmt.toml` defaults. `test:rust` already runs `clippy -D warnings` + `fmt --check`.                                                                                                                                                                                                                                                                                       | `npm run test:rust` exit 0 (from Phase 1 onward)                                                                                                        |
-| Q0.10 | **Supply chain**: `npm audit --omit=dev --audit-level=high` script `audit`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | exit 0                                                                                                                                                  |
-| Q0.11 | **Aggregate scripts**: `static` = `format:check && lint && lint:types && dup && deadcode && audit`; `verify:fast` = `static && test:unit`; `verify` = `static && test:rust && test:wasm && test:ci && build && e2e`.                                                                                                                                                                                                                                                                                                                                                                                                                        | `npm run static` exit 0                                                                                                                                 |
-
-> **Status (2026-11-18):** Q0.1–Q0.8, Q0.10 and Q0.11 are done and verified. **Q0.9 (Rust clippy/rustfmt) moves into Implementation step 1.1**, because it needs the Rust toolchain and the crate. Self-test commands: `npm run quality:self-test` = `lint:probes` (20 ESLint probes, including false-positive guards) + `test:lint-rules` (AAA RuleTester) + `quality:probes` (jscpd/knip). `npm run verify` currently = static + self-test + unit tests + build, and gains stages as phases land.
-
-**Q0 gate:** `npm run static` exit 0 **and** `node scripts/lint-probes.mjs` exit 0 (proves every rule actually fires — a silently misconfigured linter is the most common failure).
-
-### Phase Q1 — Local & agent-loop enforcement (right after Q0)
-
-| Step | Work                                                                                                                                                                                                                                                                                                                            | Control check                                                                 |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Q1.1 | `husky` + `lint-staged`: pre-commit → `prettier --write` + `eslint --fix --max-warnings 0` on staged `*.{ts,html,scss}`; `cargo fmt` + `cargo clippy -D warnings` when `*.rs` staged.                                                                                                                                           | Stage a file with a lint error → `git commit` exits non-zero                  |
-| Q1.2 | `commitlint` (`@commitlint/config-conventional`) on commit-msg, plus custom rule rejecting `/claude                                                                                                                                                                                                                             | anthropic                                                                     | co-authored-by/i` in messages. | `echo "feat: x\n\nCo-Authored-By: Claude" \| npx commitlint` exit 1; `echo "feat(core): add metrics" \| npx commitlint` exit 0 |
-| Q1.3 | pre-push → `npm run verify:fast`.                                                                                                                                                                                                                                                                                               | Push with failing unit test is rejected locally                               |
-| Q1.4 | **Claude Code hook** (`.claude/settings.json`, via the `update-config` skill): `PostToolUse` matcher `Edit\|Write` → `scripts/agent-lint-file.mjs "$FILE"` runs Prettier + ESLint on the edited file only (`*.ts\|*.html\|*.scss`), prints errors so the agent fixes them immediately; exit code 2 on lint errors to feed back. | Edit a file with an `any` via the agent → hook output shows `no-explicit-any` |
-| Q1.5 | `CLAUDE.md` "Quality gates" section: commands, thresholds, "never disable a rule inline without a `-- reason`" (enforced by `eslint-comments/require-description` from `@eslint-community/eslint-plugin-eslint-comments` + `no-unlimited-disable`).                                                                             | Probe `// eslint-disable-next-line` without description → lint error          |
-
-> **Status (2026-11-18):** Q1.1–Q1.5 are done and verified. `npm run hook:probes` runs real commits and pushes in a throwaway git worktree against a temporary bare remote. It checks 5 things: pre-commit blocks a lint error, pre-commit lets a clean file through, commit-msg blocks a non-conventional message, commit-msg blocks AI attribution, and pre-push blocks a failing test. The agent hook was tested live: an `any` introduced through the Edit tool came back as a blocking ESLint error. Decisions: commitlint rejects Claude/Anthropic and "Generated with …" anywhere, but allows human `Co-authored-by`; `no-restricted-disable` makes the architecture rules impossible to switch off with `eslint-disable`; `lint-staged` is pinned to 17.6.0, a release at least two weeks old.
-
-**Q1 gate:** all four probes above behave as specified.
-
-### Phase Q2 — Unit/integration coverage gates (attach to Implementation Phase 2; tighten through Phase 7)
-
-| Step | Work                                                                                                                                                                                                                                                                                                                                                 | Control check                                                                                                               |
-| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Q2.1 | `npm i -D @vitest/coverage-v8`. `angular.json` test target: `coverage: true` in a `ci` configuration, `coverageReporters: ["text-summary","lcov","json-summary","html"]`, `coverageExclude` per §3.3, `coverageThresholds: {statements: 65, branches: 65, functions: 65, lines: 65}`. Script `test:ci` = `ng test --watch=false --configuration ci`. | `npm run test:ci` prints coverage summary; exit 0                                                                           |
-| Q2.2 | **Critical-path 85 %**: `runnerConfig: "vitest-base.config.mts"` with `test.coverage.thresholds: { "src/app/core/producer/**": {statements:85,branches:85,functions:85,lines:85}, "src/app/shared/format/**": {…85} }`.                                                                                                                              | Probe: temporarily skip `metrics.spec.ts` → `test:ci` exits non-zero naming the glob                                        |
-| Q2.3 | **Rust coverage**: `rust-toolchain.toml` `components = ["llvm-tools-preview","clippy","rustfmt"]`; `cargo install cargo-llvm-cov` (CI: `taiki-e/install-action`); script `cov:rust` = `cargo llvm-cov --manifest-path wasm/producer/Cargo.toml --fail-under-lines 85 --fail-under-functions 85 --lcov --output-path reports/rust.lcov`.              | `npm run cov:rust` exit 0                                                                                                   |
-| Q2.4 | Integration tests I1–I3 (§3.1) written with the implementation phases 3–6; Node-environment integration (I1) runs in `wasm-tests/vitest.config.mts` project.                                                                                                                                                                                         | Named tests present: `npx ng test --watch=false --list-tests \| grep -c integration` ≥ 2; `npm run test:wasm` lists I1 + I4 |
-
-> **Q0.9 status (2026-11-18, delivered with Implementation step 1.1):**
->
-> - **Lint policy:** the Cargo `[lints]` table denies `clippy::all` and `clippy::pedantic`, plus `unwrap_used`/`expect_used`/`panic`/`todo` outside tests (Wasm uses `panic = "abort"`, so a panic would trap the worker).
-> - **Thresholds** are in `clippy.toml`: cognitive complexity **7**, nesting **4**, at most 60 lines and 4 arguments per function.
-> - **Recalibration:** the cognitive limit was lowered from the planned 10 to 7. A probe showed clippy's score has no nesting weight; a function 3 loops deep with compound conditions scored only 9, so `excessive_nesting` was added as well.
-> - **Probes:** 7 Rust probes in `quality-probes.mjs` run on a temporary copy of the crate and read the exact lint codes from cargo's JSON output.
-> - **Hooks:** Rust runs in lint-staged and in `verify:fast`/`verify`.
-
-> **Supply-chain gate (added 2026-11-18, during step 2.1):**
->
-> - **What triggered it:** installing `@vitest/coverage-v8` showed the scaffold's `^5.0.0` range had resolved Vitest to **5.1.1, published that same morning**. 15 of the 28 direct dependencies were under 14 days old, including 3 pins I had chosen myself.
-> - **Fix:**
->   - every direct dependency is pinned exactly to a release at least 14 days old (Angular 22.2.4/22.2.5, angular-eslint 22.6.0, eslint 10.14.0, jscpd 5.4.2, knip 6.44.1, prettier 3.9.10, vitest 5.1.0);
->   - the lockfile was re-resolved with `npm install --before=2026-11-04`, so **transitive** dependencies are at least 14 days old as well;
->   - `.npmrc` sets `save-exact=true`.
-> - **Gate:** `npm run deps:age` (in `static`) fails on a range, a release under 14 days old, or a lockfile that drifted from the pin. Its failure message names the version to use.
-> - **Probes:** 4 in `quality-probes.mjs`. `DEPS_AGE_NOW` pins the date, so they give the same result forever.
-
-> **Q2.1 + Q2.2 status (2026-11-18): done, in one commit because they share the same two files.**
->
-> - **Setup:** `angular.json` test target, configuration `ci`, runs through `npm run test:ci`.
->   - `coverage: true`, with reporters `text-summary`, `lcov`, `json-summary` and `html` writing to `coverage/findev`.
->   - **`coverageInclude: ["src/app/**/*.ts"]`**, so files that no test loads still count. `app.routes.ts` immediately showed up at 0 %.
->   - `coverageExclude` per §3.3: specs, `*.model.ts`, `app.config.ts`, `producer.worker.ts`.
->   - Global floor of 65 % on all four measures.
->   - `runnerConfig: vitest-base.config.mts` adds the **85 %** per-glob floors for `src/app/core/producer/**` and `src/app/shared/format/**`. The builder's own `coverageThresholds` cannot express globs.
-> - **Results today:** 99.24 % statements, 99.1 % branches, 100 % functions, 99.06 % lines.
-> - **Probes (in `quality-probes.mjs`)** add one throwaway untested file sized so that **exactly one** floor breaks:
->   - 30 lines in `core/producer` give 72 % against the glob limit, with no global message;
->   - 200 lines elsewhere give 34 % against the global limit, with no glob message.
->   - Each probe forbids the other message, so a probe that broke both floors at once (my first draft) counts as a failure.
-> - **Probe deviation:** the plan suggested skipping `metrics.spec.ts`. I add a file instead, so no real file is touched.
-> - **Wiring:** `verify:fast` (pre-push) and `verify` now run `test:ci` in place of `test:unit`.
-
-> **Q2.3 status (2026-11-18): done.**
->
-> - **Tool:** `cargo-llvm-cov` **0.9.1**, 72 days old, installed with `cargo +1.99.0 install … --locked`. rustup has no global default here; only `rust-toolchain.toml` selects one, so the toolchain is named explicitly rather than changing the machine-wide default.
-> - **`npm run cov:rust`:** a `--summary-only` gate with `--fail-under-lines 85 --fail-under-functions 85`, then `llvm-cov report --lcov` → `reports/rust.lcov` for CI (Q4).
-> - **Results today:** 99.83 % lines, 100 % functions, 99.69 % regions.
-> - **Caveat:** tests are inline `#[cfg(test)]` modules, which llvm-cov counts, so the numbers run slightly high. The mutation check (`test:rust:mutants`) is the stronger signal for Rust test quality.
-> - **Probes:**
->   - 20 untested public functions give functions 82.76 % → exit 1.
->   - The unchanged crate → exit 0.
->   - The probes read the thresholds **from the `cov:rust` script itself**, so lowering them in `package.json` also changes what is probed.
->   - llvm-cov prints no message on a miss; the probe requires exit 1 plus a printed `TOTAL` row, which tells it apart from a compile error (exit 101).
-> - **Wiring:** runs in `verify`, not in `verify:fast`, because the instrumented rebuild is slower.
-
-**Q2 gate:** `npm run test:ci && npm run cov:rust && npm run test:wasm` exit 0.
-
-### Phase Q3 — E2E, accessibility, visual (attach after Implementation Phase 7)
-
-| Step | Work                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Control check                                                                                                            |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Q3.1 | `npm init playwright@latest` (TypeScript, `e2e/`, Chromium only, no GH workflow — we own CI). `playwright.config.ts`: `webServer: { command: "npm run build && npx ng serve --configuration production --port 4300", url: "http://localhost:4300", reuseExistingServer: !process.env.CI }`, `use.baseURL` from `E2E_BASE_URL` or localhost, `retries: CI ? 1 : 0`, `trace: "on-first-retry"`, `forbidOnly: !!CI`, reporters `list` + `html` (`reports/playwright`). | `npx playwright test --list` shows the planned specs                                                                     |
-| Q3.2 | E2E specs 1–5 (§3.1) using role/label locators (`getByRole('row')`, `getByRole('button', {name: 'Pause'})`) — no CSS selectors on implementation details. AAA comments apply.                                                                                                                                                                                                                                                                                       | `npm run e2e` exit 0, total < 90 s                                                                                       |
-| Q3.3 | `@axe-core/playwright` spec 6: `new AxeBuilder({page}).withTags(['wcag2a','wcag2aa']).analyze()` → filter `serious`/`critical` → expect `[]`.                                                                                                                                                                                                                                                                                                                       | exit 0                                                                                                                   |
-| Q3.4 | Visual spec 7: `expect(page).toHaveScreenshot('settings.png', {maxDiffPixelRatio: 0.01})`; dashboard: pause first, `mask: [page.getByTestId('metric-cell')]`. Baselines generated **in the CI image** for deterministic rendering: script `e2e:update-snapshots` = `docker run --rm -v $PWD:/w -w /w mcr.microsoft.com/playwright:v<pinned>-noble npx playwright test --update-snapshots --grep @visual`. Snapshots committed under `e2e/__screenshots__/`.         | Change a heading colour → visual test fails with a diff image highlighting the region (the "red panel"); revert → passes |
-| Q3.5 | Post-deploy smoke: same Playwright project with `E2E_BASE_URL=https://vvitkus-dev.github.io/findev/ --grep @smoke` (specs 1 and 5 tagged `@smoke`).                                                                                                                                                                                                                                                                                                                 | CI `smoke` job green after deploy                                                                                        |
-
-> **Q3.1–Q3.3 + Q3.5 status (2026-11-18): done. Q3.4 (visual) is open: its baselines must be generated in the pinned Playwright image, which needs Docker.**
->
-> - **Q3.1, with three changes from the plan:**
->   - Playwright 1.64.1 is pinned at least 14 days old, so it isn't installed through `npm init playwright@latest`.
->   - The suite runs on the Pages-shaped bundle (`scripts/build-pages.mjs`, base `/findev/` + `404.html`), which `scripts/serve-dist.mjs` serves the way Pages does. That tests the sub-path worker and Wasm URLs, which `ng serve` can't.
->   - The config is typed through `e2e/tsconfig.json` (ESLint `defaultProject`).
-> - **Q3.2:** 11 tests for specs 1–5, more than the planned 5–7 because the AAA rule allows one Act per test. They use role and label locators only. Fixed waits are a 200 ms settle after Pause (an in-flight batch is accepted by design) and a 1 s observation window.
-> - **AAA rule:** it now covers `e2e/**/*.e2e.ts` and skips Playwright suites and hooks (`test.describe`, `test.beforeEach`, …). Two new lint probes prove both.
-> - **Q3.3:** 3 axe scans (dashboard, settings with a field error, the error banner) against WCAG 2.0/2.1 A and AA. A throwaway probe (an unnamed button and an image without alt) made the check fail as expected.
-> - **Q3.5:** the `smoke-e2e` job runs the 4 `@smoke` tests against the live URL after `smoke` has seen the new SHA.
-> - **CI:** `test` uploads the bundle; `e2e` runs in `mcr.microsoft.com/playwright:v1.64.1-noble` (pinned by digest) on that exact bundle; `deploy` needs `e2e`. `verify` ends with `build:pages` + `playwright test`.
-> - **Evidence:**
->   - Locally, `--repeat-each 10` and `--repeat-each 5 --workers 12` gave 165/165 passes.
->   - CI run 44358492840: every job green, e2e 14/14 with no retries, live smoke 4/4.
-
-> **Q3.4 status (2026-11-18): done, with a tighter threshold than planned.**
->
-> - **Specs:** `visual.e2e.ts` (`@visual`) covers Settings (full page) and the paused Dashboard. Table cells and status-bar counters are masked through role/text locators.
-> - **Screenshot-only stylesheet:** `e2e/support/screenshot.css` keeps masked values from moving anything (fixed table layout, a fixed-width counter box, a hidden fixed-width build id: `dev` locally, the SHA in CI).
-> - **Where it runs:** baselines are rendered by `scripts/e2e-docker.mjs` in the CI image (tag and digest read from the workflow, `--platform=linux/amd64` like the runner). The specs run on Linux only.
-> - **Threshold:** the planned `maxDiffPixelRatio: 0.01` let the control check pass, since a red `h1` changes only 483 px (0.05 %). The gate is now `maxDiffPixels: 100`; 36 clean runs in the image showed 0 differing pixels.
-> - **Control check:** red heading ⇒ both specs fail, and the diff image marks only the heading; revert ⇒ pass, with both a SHA build and a `dev` build.
-
-**Q3 gate:** `npm run e2e` exit 0 locally and in CI; flaky count = 0 over 3 consecutive CI runs.
-
-### Phase Q4 — CI integration, pyramid & PR hygiene (merge into Implementation Phase 8)
-
-| Step | Work                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Control check                                                                                                                                   |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Q4.1 | **Pyramid check** `scripts/test-pyramid.mjs`: counts tests from Vitest JSON reporter output (unit vs `*.integration.spec.ts`), Rust (`cargo test -- --list`), Playwright (`--list --reporter json`). Asserts: `e2e / total ≤ 0.10`, `unit / total ≥ 0.60`, `integration ≥ 3`. Prints the pyramid as a table into `$GITHUB_STEP_SUMMARY`.                                                                                                                                                                                                                                                                             | Script exit 0; probe: fake report with 50 % E2E → exit 1 ("ice-cream cone detected")                                                            |
-| Q4.2 | **CI workflow** `.github/workflows/ci-deploy.yml` restructured into jobs: `static` (Q0 scripts + clippy/fmt + commitlint on pushed range + legacy grep guards) ∥ `test` (`test:ci`, `test:rust`, `cov:rust`, `wasm:build`, `wasm:verify`, `test:wasm`, `test-pyramid`) → `e2e` (needs `test`; Playwright container `mcr.microsoft.com/playwright:v<pinned>-noble`) → `deploy` (needs **static, test, e2e**; `main` only) → `smoke` (needs deploy). Artifacts: `reports/coverage`, `reports/jscpd`, `reports/playwright`, `reports/rust.lcov`. Coverage + duplication + pyramid summaries written to the job summary. | Push a commit with a lint error to a branch → `static` red, `deploy` skipped; fix → all green; on `main` deploy runs only after all three gates |
-| Q4.3 | **PR hygiene** for big AI PRs: `.github/pull_request_template.md` (what/why, test evidence, checklist mirroring gates); job `pr-size` (pull_request only) fails if changed lines > 600 excluding `package-lock.json`, `e2e/__screenshots__/**`, `.claude/skills/**` (message: "split the PR").                                                                                                                                                                                                                                                                                                                       | Synthetic PR > 600 lines → `pr-size` red                                                                                                        |
-| Q4.4 | README "Quality gates" section: table of controls, thresholds, commands, how to update visual baselines.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | README contains each script name from Q0.11 (grep check)                                                                                        |
-
-**Q4 gate:** three consecutive green CI runs on `main` with deploy; a deliberately broken branch shows the expected red job for each gate type (static/test/e2e).
-
-### Phase Q5 — Stretch (only if time allows; good interview talking points)
-
-| Step | Work                                                                                                                                                                                                                                                                                      | Control check                                        |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| Q5.0 | ✅ **Pulled forward for Rust:** `scripts/rust-mutants.mjs`, a dependency-free mutation check (string mutants applied to a temporary copy of the crate, which must make `cargo test` fail). It runs in `npm run verify`. Every new Rust module adds its mutants.                           | `npm run test:rust:mutants` → "All N mutants killed" |
-| Q5.1 | **Mutation testing**: StrykerJS + `@stryker-mutator/vitest-runner` on `core/producer/{metrics,producer-settings}.ts` and `shared/format/market-format.ts` via a Node-env Vitest project. `thresholds: {high: 90, low: 80, break: 80}`. Weekly/scheduled CI job (too slow for every push). | `npx stryker run` mutation score ≥ 80 %              |
-| Q5.2 | **SonarCloud** (free for public repos) fed with lcov + ESLint JSON: single dashboard for complexity, duplication, coverage on new code. Local tools remain the source of truth (no external dependency for gating).                                                                       | Quality Gate "Passed" badge in README                |
-
-> **Q5.1 status (2026-11-18): done. It runs on every push, not weekly: the whole run takes about 5 s.**
->
-> - **Setup:** StrykerJS 10.1.1 with the Vitest runner, on a Node-environment Vitest project (`stryker/vitest.config.mts`) holding the three framework-free specs. Thresholds 90/80/break 80.
-> - **First run:** 89.94 %, with 17 survivors.
->   - **Real gaps, now tested:** the 50-instrument upper bound, error messages, half-filled quotes and books in `deriveMetrics`, and `formatVolume` rounding.
->   - **Equivalent mutants:** marked with `// Stryker disable next-line <mutator>: <reason>`. They are `typeof`/`=== null` guards that only narrow types (`Number.isInteger`/`Number.isFinite` already reject those values), and `base + FIELD.instrument` where the field is 0.
-> - **Now:** 100 % (154 killed, 1 timeout, 4 compile-time `Intl` errors that count as detected).
-> - **Wiring:** in `verify` and the CI `test` job, which uploads the HTML report. A quality probe proves that a score below 80 % fails.
-
----
-
-## 5. Thresholds summary (single source of truth)
-
-| Metric                                         | Threshold                                | Tool                                                      |
-| ---------------------------------------------- | ---------------------------------------- | --------------------------------------------------------- |
-| TS errors                                      | 0                                        | `tsc`, `ngc` (strictTemplates, extendedDiagnostics=error) |
-| Lint warnings/errors                           | 0 (`--max-warnings 0`)                   | ESLint                                                    |
-| Cyclomatic complexity / function               | ≤ 10                                     | ESLint `complexity`                                       |
-| Cognitive complexity / function                | ≤ 15                                     | `sonarjs/cognitive-complexity`                            |
-| Template cyclomatic / conditional complexity   | ≤ 8 / ≤ 4                                | angular-eslint template rules                             |
-| Rust cognitive complexity                      | ≤ 10                                     | clippy                                                    |
-| Function length / file length / params / depth | ≤ 60 lines / ≤ 300 lines / ≤ 4 / ≤ 3     | ESLint                                                    |
-| Duplication                                    | ≤ 3 % (min 50 tokens)                    | jscpd                                                     |
-| Unused files/exports/deps                      | 0                                        | knip                                                      |
-| Coverage global / critical / Rust              | ≥ 65 % / ≥ 85 % / ≥ 85 %                 | v8, cargo-llvm-cov                                        |
-| Pyramid                                        | E2E ≤ 10 %, unit ≥ 60 %, integration ≥ 3 | `test-pyramid.mjs`                                        |
-| E2E a11y                                       | 0 serious/critical                       | axe                                                       |
-| Visual diff                                    | ≤ 1 % pixels                             | Playwright                                                |
-| PR size                                        | ≤ 600 changed lines                      | `pr-size` job                                             |
-| Mutation score (stretch)                       | ≥ 80 %                                   | Stryker                                                   |
-
-## 6. Risks & mitigations
-
-| Risk                                                   | Mitigation                                                                                              |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| Strict lint/complexity slows early development         | Rules are on from day 0 (cheap to comply with fresh code, expensive to retrofit); `lint --fix` in hooks |
-| Coverage gamed by assertion-free AI tests              | `expect-expect`, AAA rule, mutation testing (Q5.1)                                                      |
-| Visual tests flaky across OS/fonts                     | Baselines only from pinned Playwright Linux image; only stable regions; live numbers masked             |
-| E2E timing flakiness with a live worker                | Assertions on invariants + `expect.poll`; single bounded wait; CI retry=1 with flaky reporting          |
-| CI duration growth                                     | Parallel `static` ∥ `test`; npm/cargo/Playwright caches; E2E Chromium-only                              |
-| Tool version drift (Angular 22 / ESLint 10 / Vitest 5) | Pin exact versions in `package.json`; every Q-step verified by its probe immediately after install      |
+| Risk                                           | Mitigation                                                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Strict lint/complexity slows early development | Rules are on from day 0 (cheap for fresh code, expensive to retrofit); `--fix` in hooks          |
+| Coverage gamed by assertion-free AI tests      | `expect-expect`, AAA rule, mutation testing (QG-16)                                              |
+| Visual tests flaky across OS/fonts             | Baselines only from the pinned Playwright Linux image; stable regions only; live numbers masked  |
+| E2E timing flakiness with a live worker        | Assertions on invariants + `expect.poll`; bounded fixed waits; CI retry = 1 with flaky reporting |
+| CI duration growth                             | Parallel `static` ∥ `self-test` ∥ `test`; npm/cargo/Playwright caches; Chromium only             |
+| Tool or dependency drift                       | Exact pins ≥ 14 days old (QG-10); every step verified by its probe right after install           |

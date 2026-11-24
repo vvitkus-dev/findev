@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { producerState, totalVolume } from './support/dashboard';
 
-// Spec 5 (docs/QUALITY_GATES_PLAN.md §3.1): a failed Wasm load is reported, and Retry recovers.
+// Scenario E5 (docs/QUALITY_GATES_PLAN.md §5.1): a failed Wasm load is reported, and Retry recovers.
 // The route is on the context so the worker's fetch is intercepted too.
 
 const WASM = '**/wasm/producer.wasm';

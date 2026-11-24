@@ -72,7 +72,7 @@ export async function totalVolume(page: Page): Promise<number> {
 export async function pauseAndSettle(page: Page): Promise<void> {
   await producerBar(page).getByRole('button', { name: 'Pause' }).click();
   await producerState(page).getByText('Paused').waitFor();
-  // Documented fixed wait (plan §3.1): far longer than a postMessage hop, shorter than a batch.
+  // Documented fixed wait (docs/QUALITY_GATES_PLAN.md §5.1): far longer than a postMessage hop, shorter than a batch.
   await page.waitForTimeout(200);
 }
 
