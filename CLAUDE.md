@@ -6,9 +6,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Interview take-home: a realtime fintech dashboard. An Angular app has two pages, a live market Dashboard and producer Settings. Simulated market updates come from a **candidate-written Wasm library (Rust)**, which runs inside a **Web Worker**.
 
-`docs/IMPLEMENTATION_PLAN.md` is the source of truth. It holds the requirement IDs (R1–R24), the architecture decisions with their trade-offs, the exact interfaces (Wasm ABI, worker protocol, metrics, service), and the phased steps. Each step has deterministic control checks. Work phase by phase. A step is done only when its control checks pass. Commit once per step, using conventional commits.
+## Spec-driven workflow (`specs/`)
 
-The repo is currently at **Phase 0**: a fresh Angular 22 scaffold. Paths and scripts marked _(planned)_ below do not exist yet. They are created by the plan steps named next to them.
+The specs in `specs/` are the source of truth; `specs/README.md` explains the workflow and indexes every spec. Each spec moves through three phases, one file each:
+
+1. **Requirements** — `requirements.md`: user stories and EARS acceptance criteria (`WHEN … THE SYSTEM SHALL …`) with stable IDs (R1–R24, QG-1–QG-29, AR1–AR8) and a traceability table. A bug fix uses `bugfix.md` instead: current, expected and unchanged behaviour, root cause.
+2. **Design** — `design.md`: decisions with trade-offs, contracts (Wasm ABI, worker protocol, metrics, store), sequence diagrams, error handling, test strategy.
+3. **Tasks** — `tasks.md`: a checklist of discrete tasks, each naming its requirements and closed by a deterministic control check.
+
+Rules:
+
+- **New feature:** write `specs/<feature>/requirements.md`, then `design.md`, then `tasks.md`, and get each phase agreed before the next. Don't write code before its task exists.
+- **Bug fix:** write `specs/bugfixes/<slug>/bugfix.md` first. Its first task is a regression test that fails before the fix.
+- A task is done only when its control check passes. Tick it in `tasks.md` in the same commit. One conventional commit per task.
+- Code comments cite the spec they implement (e.g. `specs/quality-gates/tasks.md Q1.2`).
+
+Main specs: `specs/market-dashboard/` (the app, all phases done except 9.6) and `specs/quality-gates/` (all gates).
 
 ## Stack
 
@@ -42,11 +55,10 @@ npm run test:wasm            # Node Vitest suite on the real public/wasm/produce
 node scripts/cargo.mjs test rng::   # any cargo subcommand on the producer crate (single Rust test module)
 npm run test:rust:mutants    # mutation check: each injected Rust bug must make a test fail (add mutants with new code)
 npm run cov:rust             # Rust coverage gate (≥ 85 % lines + functions) → reports/rust.lcov; needs cargo-llvm-cov (below)
+npm run e2e                  # Playwright on the Pages-shaped build (needs `npx playwright install chromium` once)
 ```
 
-_(planned)_ These scripts join `verify` as the phases land: `e2e` (Playwright, Q3).
-
-## Architecture (target, see plan §1–§3)
+## Architecture (see `specs/market-dashboard/design.md`)
 
 Data flow: `Rust producer (Wasm)` → `ProducerEngine in worker (TS)` → snapshots via `postMessage` → `ProducerStore` (`@Service()` singleton, signals) → pages.
 
@@ -60,19 +72,19 @@ Data flow: `Rust producer (Wasm)` → `ProducerEngine in worker (TS)` → snapsh
 - **Scheduling.** The worker reschedules itself with `setTimeout`, delayed by `max(0, interval − elapsed)`. There is no `setInterval` and no catch-up after a pause or a slow batch. A batch generated before Pause but delivered after it is still accepted, because it has the same `runId`.
 - **Wasm URL.** The main thread resolves it from `document.baseURI` and sends it in the `init` message, because the app is deployed under a `/<repo>/` sub-path.
 
-## Deployment _(planned, Phase 8)_
+## Deployment
 
 GitHub Pages via GitHub Actions (`.github/workflows/ci-deploy.yml`):
 
 - **Every push** builds and runs all tests.
-- **Only pushes to `main`** deploy. The deploy build runs `ng build --base-href "/findev/"` and copies `index.html` to `404.html` as the SPA fallback.
+- **Only pushes to `main`** deploy. The deploy build runs `ng build --base-href "/findev/"` and writes a `<route>.html` per route (so deep links answer 200) and copies `index.html` to `404.html` as the fallback for unknown URLs.
 - Repo: https://github.com/vvitkus-dev/findev. A push to `main` redeploys the live demo; there are no manual deploy steps.
 
 ## Angular coding: always use the `angular-developer` skill
 
 **Before writing or changing any Angular code** (components, services, DI, signals, forms, routing, pipes, styles, Angular tests), invoke the project skill `angular-developer` (`.claude/skills/angular-developer/SKILL.md`) and read the `references/*.md` files the task needs. The skill is Angular's official agent skill (https://angular.dev/ai/agent-skills). It is pinned in `skills-lock.json`; restore it with `npx skills experimental_install` and update it with `npx skills update angular-developer -p`. Don't edit the skill files by hand.
 
-Plan §4.0 lists the skill rules this repo applies. The ones most often missed:
+`specs/market-dashboard/tasks.md` ("Angular coding standard") lists the skill rules this repo applies. The ones most often missed:
 
 - **Naming is "Intent over Role"** (v20+, matching the scaffold's `app.ts`/`class App`): `metrics-table.ts` → `class MetricsTable`, `producer-store.ts` → `class ProducerStore`. No `.component.ts`/`.service.ts` suffixes and no `Component`/`Service` class suffixes. Types go in `*.model.ts`.
 - **Services:** `@Service()`, not `@Injectable({providedIn:'root'})`. Private writable signals are exposed with `.asReadonly()` or `computed()`. Use `inject()`.
@@ -81,9 +93,9 @@ Plan §4.0 lists the skill rules this repo applies. The ones most often missed:
 - **Tests:** zoneless Act → `await fixture.whenStable()` → Assert. Never call `fixture.detectChanges()` or `markForCheck()`. Set inputs with `fixture.componentRef.setInput()`. Use `RouterTestingHarness` with the real routes; don't mock the Router.
 - **Scaffold** with `ng generate …`, and run `npx ng build` after every Angular change. The skill requires a clean build before you continue.
 
-The plan §4.0 guard greps are now ESLint rules (Q0.4), so `npm run lint` covers them.
+Its guard greps are ESLint rules (Q0.4), so `npm run lint` covers them.
 
-## Quality gates (`docs/QUALITY_GATES_PLAN.md`)
+## Quality gates (`specs/quality-gates/`)
 
 All thresholds are hard failures, and deploy is blocked unless every gate is green. Where each one runs:
 
@@ -91,7 +103,7 @@ All thresholds are hard failures, and deploy is blocked unless every gate is gre
 - **On commit:** lint-staged (Prettier + ESLint on staged files) and commitlint. Messages must be conventional commits, and they **must not mention Claude/Anthropic** or carry AI attribution lines.
 - **On push:** `npm run verify:fast` (static + Rust + Wasm suite + unit tests with coverage gates).
 - **Rust (`wasm/producer`):** clippy `all` + `pedantic` are denied, with no `unwrap`/`expect`/`panic` outside tests. Cognitive complexity ≤ 7 and nesting ≤ 4 (calibrated for clippy's scoring); ≤ 60 lines and ≤ 4 arguments per function. Thresholds live in `wasm/producer/clippy.toml`.
-- **In CI:** everything above plus coverage, E2E and the pyramid check. _(planned, Q4)_
+- **In CI:** everything above plus coverage, mutation, E2E and the pyramid check; deploy needs every gate job.
 
 Never bypass these with `--no-verify`.
 

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { metricRows, producerState, readRows } from './support/dashboard';
 
-// Scenario E1 (docs/QUALITY_GATES_PLAN.md §5.1): the real build, worker and Wasm stream market data.
+// Scenario E1 (specs/quality-gates/design.md §3.1): the real build, worker and Wasm stream market data.
 // Only invariants are asserted: the values themselves are random.
 
 test('dashboard boots with five live instruments', { tag: '@smoke' }, async ({ page }) => {

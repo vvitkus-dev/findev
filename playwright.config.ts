@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// E2E suite (docs/QUALITY_GATES_PLAN.md Q3). Runs against the Pages-shaped production build
+// E2E suite (specs/quality-gates/tasks.md Q3). Runs against the Pages-shaped production build
 // (`npm run build:pages`) served under /findev/ by scripts/serve-dist.mjs, or against a live
 // URL when E2E_BASE_URL is set (post-deploy smoke, no local server).
 const CI = Boolean(process.env['CI']);

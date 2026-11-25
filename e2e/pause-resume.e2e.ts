@@ -7,7 +7,7 @@ import {
   volumes,
 } from './support/dashboard';
 
-// Scenario E2 (docs/QUALITY_GATES_PLAN.md §5.1): Pause stops generation; Resume continues the totals.
+// Scenario E2 (specs/quality-gates/design.md §3.1): Pause stops generation; Resume continues the totals.
 
 test.beforeEach(async ({ page }) => {
   await page.goto('dashboard');

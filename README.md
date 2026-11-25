@@ -6,6 +6,21 @@ updates come from a **Wasm library written in Rust**, which runs inside a **Web 
 - **Live demo:** https://vvitkus-dev.github.io/findev/ (the footer shows the deployed commit)
 - **Repository:** https://github.com/vvitkus-dev/findev
 
+## Spec-driven development
+
+Every feature and bug fix was specified before it was built. The specs in [`specs/`](specs/README.md)
+follow three phases, one file each:
+
+| Phase        | File                                         | Contents                                                                         |
+| ------------ | -------------------------------------------- | -------------------------------------------------------------------------------- |
+| Requirements | `requirements.md` (or `bugfix.md` for a fix) | User stories, EARS acceptance criteria (R1–R24), traceability to tests           |
+| Design       | `design.md`                                  | Decisions and trade-offs, contracts, sequence diagrams, error handling           |
+| Tasks        | `tasks.md`                                   | Checklist of tasks, each with its requirements and a deterministic control check |
+
+Main specs: [market-dashboard](specs/market-dashboard/requirements.md) (the app),
+[quality-gates](specs/quality-gates/requirements.md) (the gates every change passes) and
+[adaptive-repaint](specs/adaptive-repaint/requirements.md), plus five bug-fix specs.
+
 ## Build, run and test
 
 Prerequisites: **Node 24** with npm 11 (`.nvmrc`), and **Rust via [rustup](https://rustup.rs/)**.
@@ -25,7 +40,7 @@ npm run test:wasm      # tests on the compiled producer.wasm (run wasm:build fir
 
 Optional extras: `npm run e2e` runs Playwright end-to-end tests (needs
 `npx playwright install chromium` once), and `npm run verify` runs every quality gate
-(see [`docs/QUALITY_GATES_PLAN.md`](docs/QUALITY_GATES_PLAN.md)).
+(see [`specs/quality-gates`](specs/quality-gates/requirements.md)).
 
 ## How it works
 

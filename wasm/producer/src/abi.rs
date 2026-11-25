@@ -1,4 +1,4 @@
-//! The raw C ABI that JavaScript calls (see `docs/IMPLEMENTATION_PLAN.md` §3.1).
+//! The raw C ABI that JavaScript calls (see `specs/market-dashboard/design.md` §3.1).
 //!
 //! Pointers cross the boundary as plain integers. A producer pointer is created only by
 //! [`producer_create`] (a leaked `Box`) and released only by [`producer_destroy`]. Every invalid

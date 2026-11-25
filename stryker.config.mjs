@@ -1,5 +1,5 @@
 // @ts-check
-// Mutation testing (docs/QUALITY_GATES_PLAN.md Q5.1): Stryker changes the critical pure modules
+// Mutation testing (specs/quality-gates/tasks.md Q5.1): Stryker changes the critical pure modules
 // one mutant at a time; a mutant that no test notices is a gap in the tests, not the code.
 // Run: npm run test:mutation → reports/mutation/index.html. Weekly in CI (too slow per push).
 /** @type {import('@stryker-mutator/api/core').PartialStrykerOptions} */

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Verifies the compiled producer against the ABI contract (docs/IMPLEMENTATION_PLAN.md §3.1):
+// Verifies the compiled producer against the ABI contract (specs/market-dashboard/design.md §3.1):
 // exact exports, no imports, version, size budget, and a generate round trip whose records
 // satisfy every market invariant. Usage: node scripts/verify-wasm.mjs [path] (default: public/wasm/producer.wasm)
 import { readFileSync } from 'node:fs';

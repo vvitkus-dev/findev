@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { metricRows, pauseAndSettle, producerBar } from './support/dashboard';
 
-// Spec 7 (docs/QUALITY_GATES_PLAN.md Q3.4): layout and styling regressions. Baselines live in
+// Scenario E7 (specs/quality-gates/tasks.md Q3.4): layout and styling regressions. Baselines live in
 // e2e/__screenshots__ and are rendered only in the pinned Playwright image
 // (`npm run e2e:update-snapshots`). Random or time-dependent text is masked, never asserted; the build id is
 // hidden by e2e/support/screenshot.css.

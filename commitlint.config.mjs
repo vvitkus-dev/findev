@@ -1,4 +1,4 @@
-// Commit-message gate (docs/QUALITY_GATES_PLAN.md Q1.2): conventional commits + no AI attribution.
+// Commit-message gate (specs/quality-gates/tasks.md Q1.2): conventional commits + no AI attribution.
 const AI_ATTRIBUTION =
   /\b(claude|anthropic)\b|generated (with|by) .*\b(ai|claude|copilot|chatgpt)\b/i;
 

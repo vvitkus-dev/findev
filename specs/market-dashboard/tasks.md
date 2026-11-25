@@ -1,364 +1,120 @@
-# Realtime Fintech Dashboard — Implementation Plan
+# Market Dashboard — Tasks
 
-> Status: ready for implementation · Baseline: Angular 22.2 (zoneless, standalone), TypeScript 6.0, Vitest 5 via `@angular/build:unit-test`, Node 24 (`.nvmrc`).
-> Repo state at planning time: fresh `ng new` scaffold, single commit `ec77f8e`, no Rust toolchain installed locally.
+> Spec phase 3 of 3 · Previous: [requirements.md](requirements.md), [design.md](design.md)
+>
+> Each task names the requirements it satisfies, lands as one conventional commit, and is ticked
+> only when its control check (in §2) passes.
 
----
+## 1. Checklist
 
-## 0. Requirement analysis
+Execution order with the quality-gate tasks ([quality-gates/tasks.md](../quality-gates/tasks.md)):
+`Phase 0 → Q0 → Q1 → Phase 1 → Phase 2 (+Q2.0–Q2.3) → Phases 3–6 (+Q2.4) → Phase 7 → Q3 → Phase 8 (+Q4) → Phase 9 → Q5`.
 
-### 0.1 Requirements decomposed into testable statements
+### Phase 0 — Toolchain and repo baseline
 
-| ID  | Requirement (normalised)                                                                                               | Source | Verified by                                                                |
-| --- | ---------------------------------------------------------------------------------------------------------------------- | ------ | -------------------------------------------------------------------------- |
-| R1  | Two pages: Dashboard, Settings; navigation between them                                                                | §1, §2 | component tests + manual                                                   |
-| R2  | One table row per instrument; 5 metrics: last price, spread, volume, VWAP, imbalance                                   | §1     | `metrics.spec.ts`, `metrics-table.spec.ts`                                 |
-| R3  | Volume & VWAP cumulative since run start; every trade counted exactly once; book quantities never contribute to volume | §1, §3 | `metrics.spec.ts`                                                          |
-| R4  | Before data: unavailable values + volume 0. Zero denominator ⇒ unavailable                                             | §1     | `metrics.spec.ts`, `market-format.spec.ts`                                 |
-| R5  | Prices formatted as currency; imbalance in [−1, +1]                                                                    | §1     | `market-format.spec.ts`                                                    |
-| R6  | Pause/Resume; pausing stops generation; resume keeps totals; no data for paused interval (no catch-up)                 | §1     | `producer-engine.spec.ts`, `producer-store.spec.ts`                        |
-| R7  | Basic producer status                                                                                                  | §1     | `producer-status.spec.ts`                                                  |
-| R8  | Settings form: 3 integer fields, defaults 5/100/500, ranges 1–50 / 1–1000 / 50–2000                                    | §2     | `producer-settings.spec.ts`, `settings-schema.spec.ts`, `settings.spec.ts` |
-| R9  | Editing does not affect producer; **Apply** starts a new run, clears values/totals, starts even if paused              | §2     | `settings.spec.ts`, `producer-store.spec.ts`                               |
-| R10 | App starts with defaults (running)                                                                                     | §2     | `producer-store.spec.ts`                                                   |
-| R11 | Navigation preserves run + running/paused; never creates extra producers                                               | §2     | `producer-store.spec.ts` (worker factory call count)                       |
-| R12 | Results from previous run never overwrite new run state                                                                | §2     | `producer-store.spec.ts`, `producer-engine.spec.ts`                        |
-| R13 | Wasm generates **market updates** (trade + bid/ask snapshot); randomness & price logic in Wasm                         | §3     | Rust tests + `grep` control check (no `Math.random` in producer path)      |
-| R14 | Generator keeps per-instrument state; returns batches of requested size; prices evolve from previous values            | §3     | Rust tests, `wasm-abi.test.ts`                                             |
-| R15 | Invariants: price > 0, bid < ask, tradeQty > 0, book qty ≥ 0, trade price ∈ {bid, ask}                                 | §3     | Rust property-style tests + `wasm-abi.test.ts`                             |
-| R16 | Wasm runs inside a Web Worker                                                                                          | §3     | build artefact check + code review gate                                    |
-| R17 | Integer cents everywhere; rounding only at display                                                                     | §3     | `metrics.spec.ts`, review gate                                             |
-| R18 | No full event history retained; UI may refresh slower than production but all trades counted                           | §3     | `metrics.spec.ts` (O(instruments) state), review gate                      |
-| R19 | UI stays usable at high rates (max = 1000 updates / 50 ms = 20 000 updates/s)                                          | §3     | Phase 9 performance check                                                  |
-| R20 | Meaningful init errors; producer resources cleaned up on replace/destroy                                               | §3     | `producer-engine.spec.ts`, `producer-store.spec.ts`                        |
-| R21 | Unit tests: metrics, settings+reset, pause/resume+stale rejection, generator                                           | §4     | test suites listed above                                                   |
-| R22 | Tests use fixed inputs / controllable deps; no long real-time waits                                                    | §4     | injected scheduler + seeded RNG; CI test duration gate                     |
-| R23 | Public GitHub repo, README (build/run/test), incremental commit history                                                | §5     | Phase 8 checks                                                             |
-| R24 | Every push auto-builds and redeploys; live demo link                                                                   | §5     | Phase 8 checks                                                             |
+- [x] **0.1** Public repo, `.nvmrc` · _R23_
+- [x] **0.2** Rust toolchain pinned in `rust-toolchain.toml` · _R13_
+- [x] **0.3** Strict TypeScript (done as Q0.1)
+- [x] **0.4** Minimal shell with `<router-outlet />` · _R1_
+- [x] **0.5** npm scripts and git-ignores for Wasm output · _R23_
+- [x] **0.6** `format:check` (done as Q0.11)
 
-### 0.2 Derived / implicit requirements (things the spec implies but does not spell out)
+### Phase 1 — Wasm producer (Rust)
 
-- **D1 — Run identity.** "Results from a previous run must not overwrite the new run's state" ⇒ every message carries a monotonically increasing `runId`; both worker and main thread discard mismatched messages.
-- **D2 — Deterministic generator.** Tests need fixed inputs ⇒ generator takes an explicit 64-bit seed. Production seeds come from `crypto.getRandomValues` (entropy source only; all random _draws_ happen in Wasm).
-- **D3 — Controllable time.** "No long real-time waits" ⇒ the worker-side engine never calls `setTimeout` directly; it uses an injected `Scheduler` + `Clock`.
-- **D4 — Base-href-safe Wasm URL.** GitHub Pages serves under `/<repo>/` ⇒ the Wasm URL is resolved from `document.baseURI` on the main thread and passed to the worker.
-- **D5 — Number precision.** `Σ(price×qty)` in cents stays an exact integer in `float64` while `< 2^53 ≈ 9.0e15`. Worst case per instrument (1 instrument, 20 000 updates/s, price ≈ 1e5 cents, qty ≤ 100) ≈ 2e11 cents/s ⇒ exact for ~12.5 h; beyond that relative error ≈ 1e-16, invisible after rounding to cents. Decision: plain `number`, documented, with a unit test at the boundary. (BigInt rejected: 10–50× slower in the hot loop, no visible benefit.)
-- **D6 — Status model.** `initializing → running ⇄ paused`, any → `error`. Shown on dashboard with run number and measured throughput.
-- **D7 — Scheduling semantics.** "Requested time between batches" ⇒ start-to-start interval; if a batch takes longer than the interval, the next one starts immediately but never _bursts_ to catch up.
+- [x] **1.1** Crate `wasm/producer` (cdylib + rlib), release profile · _R13_
+- [x] **1.2** Seeded RNG: SplitMix64 + PCG32 · _R13, R22_
+- [x] **1.3** Instrument model: price walk, spread, book, trade · _R14, R15_
+- [x] **1.4** `Producer` with a reusable batch buffer · _R14_
+- [x] **1.5** Raw C ABI with null/invalid handling · _R14, R20_
+- [x] **1.6** `build-wasm.mjs` and `verify-wasm.mjs` · _R13_
+- [x] **1.7** clippy + rustfmt in `test:rust` · _R21_
 
-### 0.3 Ambiguities and the decision taken
+### Phase 2 — Domain core in TypeScript
 
-| Ambiguity                                                         | Decision                                                                                           | Rationale                                                                                                                                                                                  |
-| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Is a batch generated _before_ pause but delivered after it valid? | **Accept** it (same `runId`).                                                                      | Those trades were generated in the current run; dropping them would violate "every generated trade must contribute". Pause stops _generation_, not delivery of what was already generated. |
-| Should Apply navigate to dashboard?                               | Stay on Settings, show "Run #N started" confirmation.                                              | Least surprise; user may tweak further. Interviewer can change in 1 line.                                                                                                                  |
-| Settings form when re-visited                                     | Shows the **active (applied)** settings; unsaved drafts are discarded on navigation.               | Form must reflect producer truth; persisting drafts is not required.                                                                                                                       |
-| Symbols for 50 instruments                                        | Fixed, deterministic list of 50 four-letter tickers (`ALFA, BETA, GAMA, DLTA, …`) mapped by index. | Wasm only emits `u32` instrument index; no strings cross the boundary.                                                                                                                     |
-| "Each push must redeploy"                                         | Deploy on every push to `main`; other branches run build+test only.                                | Interview changes go to `main`; avoids racing deployments from branches to one Pages site. Documented in README.                                                                           |
+- [x] **2.1** Settings defaults, limits, `validateSettings` · _R8_
+- [x] **2.2** 50 deterministic tickers · _R2_
+- [x] **2.3** `createAccumulators`, `applyBatch`, `deriveMetrics` · _R2–R4, R17, R18_
+- [x] **2.4** Market formatters and pure pipes · _R4, R5, R17_
+- [x] **2.5** Wasm generator adapter + Node suite on the real module · _R14_
+- [x] **2.6** Randomness lives only in Wasm · _R13_
 
----
+### Phase 3 — Worker-side engine
 
-## 1. Architecture decisions & trade-offs
+- [x] **3.1** `Scheduler`/`Clock` + `ManualScheduler` · _R22_
+- [x] **3.2** `ProducerEngine` core with a fake generator · _R3, R16_
+- [x] **3.3** Pause/resume · _R6_
+- [x] **3.4** Run isolation and cleanup · _R12, R20_
+- [x] **3.5** Ordering and errors · _R20_
+- [x] **3.6** Slow batch handling (no catch-up) · _R6_
+- [x] **3.7** `producer.worker.ts` adapter + worker tsconfig · _R16_
 
-### 1.1 Wasm language / toolchain
+### Phase 4 — Main-thread store
 
-| Option                                     | Pros                                                                                                                                                              | Cons                                                                                                                   | Verdict                                                       |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| **Rust** (`wasm32-unknown-unknown`, cargo) | Industry standard for Wasm; zero-runtime output (~10–25 KB); `cargo test` gives native, fast generator tests; strong types; rustup preinstalled on GitHub runners | Extra local toolchain (rustup); learning curve for reviewers                                                           | **Chosen**                                                    |
-| AssemblyScript                             | npm-only toolchain, TS-like syntax familiar to Angular devs                                                                                                       | Weaker credibility as "real Wasm" ("TS wrapped in Wasm" perception); thinner test ecosystem; less common in production | Rejected — risk of failing "not a trivial wrapper" perception |
-| C/C++ + Emscripten                         | Mature                                                                                                                                                            | Heavy SDK (~1 GB), generated JS glue, slower CI                                                                        | Rejected                                                      |
-| Zig / TinyGo                               | Small outputs                                                                                                                                                     | Niche, less explainable, smaller ecosystem                                                                             | Rejected                                                      |
+- [x] **4.1** Injection tokens `WORKER_FACTORY`, `SEED_SOURCE`, `WASM_URL` · _R22_
+- [x] **4.2** `@Service()` `ProducerStore` with signals, boots with defaults · _R10_
+- [x] **4.3** Snapshot handling with the run gate · _R12_
+- [x] **4.4** `apply(settings)` · _R9_
+- [x] **4.5** `pause()` / `resume()` · _R6_
+- [x] **4.6** Measured throughput · _R7_
+- [x] **4.7** Errors and cleanup · _R20_
+- [x] **4.8** Navigation never creates a worker · _R11_
 
-### 1.2 JS ↔ Wasm interface
+### Phase 5 — Dashboard page
 
-| Option                                                                                                               | Pros                                                                                                                                               | Cons                                                                                                                  | Verdict    |
-| -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------- |
-| `wasm-bindgen` + `wasm-pack`                                                                                         | Ergonomic, generates TS types                                                                                                                      | Generated JS glue must be bundled into the worker; extra tool; returning arrays copies; harder to explain bytes-level | Rejected   |
-| **Raw C ABI** (`#[unsafe(no_mangle)] extern "C"`), records written into linear memory, JS reads a `Uint32Array` view | Zero copies, zero glue, ~6 exported functions, fully explainable, loads with plain `WebAssembly.instantiate` in both browser worker and Node tests | Manual pointer handling; must re-create views if memory grows                                                         | **Chosen** |
+- [x] **5.1** `MetricsTable` · _R2, R4_
+- [x] **5.2** `ProducerStatus` · _R7_
+- [x] **5.3** `Dashboard` page · _R1_
+- [x] **5.4** Accessibility of table and status · _R1_
 
-Rules for the raw ABI (enforced by tests):
+### Phase 6 — Settings page
 
-1. Every exported function is listed in `ABI_EXPORTS` and verified by `scripts/verify-wasm.mjs`.
-2. JS creates the `Uint32Array` view **after** every `generate` call (memory may grow → old `ArrayBuffer` detached).
-3. `abi_version()` export guards against stale artefacts.
+- [x] **6.1** Signal Forms validation schema · _R8_
+- [x] **6.2** `Settings` page with a draft model · _R8_
+- [x] **6.3** Editing doesn't affect the producer · _R9_
+- [x] **6.4** Apply through `submit()` · _R9_
+- [x] **6.5** Integration: apply clears rows, stale snapshot rejected · _R9, R12_
 
-### 1.3 Batch transport format inside the worker
+### Phase 7 — Shell, routing, error UX
 
-| Option                                                | Pros                                      | Cons                              | Verdict                                      |
-| ----------------------------------------------------- | ----------------------------------------- | --------------------------------- | -------------------------------------------- |
-| JSON / JS objects per update                          | Readable                                  | 20 000 allocations/s, GC pressure | Rejected                                     |
-| Struct-of-arrays (7 pointers)                         | Vectorisable                              | 7 views to manage                 | Rejected (complexity, no gain at this scale) |
-| **Array-of-structs, 7 × `u32` per update (28 bytes)** | One pointer, one view, trivially iterable | —                                 | **Chosen**                                   |
+- [x] **7.1** Lazy routes with redirects · _R1, R11_
+- [x] **7.2** Init-error banner with Retry · _R20_
+- [x] **7.3** Responsive styling · _R19_
 
-Record layout (`#[repr(C)]`, little-endian `u32`): `[instrument, priceCents, tradeQty, bidCents, askCents, bidQty, askQty]`.
+### Phase 8 — Repository, CI/CD, README
 
-### 1.4 Where metrics are calculated
+- [x] **8.1** Public GitHub repo with full history · _R23_
+- [x] **8.2** CI workflow on every push (layout from Q4.2) · _R24_
+- [x] **8.3** GitHub Pages from Actions · _R24_
+- [x] **8.4** `smoke-deploy.mjs` · _R24_
+- [x] **8.5** Auto-deploy proof · _R24_
+- [x] **8.6** README · _R23_
 
-| Option                                                                            | Pros                                                                                                                                                 | Cons                                                                                                            | Verdict    |
-| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ---------- |
-| In Wasm                                                                           | Fastest                                                                                                                                              | Metric tests (worked example) would live in Rust; duplicating snapshot export ABI; harder for Angular reviewers | Rejected   |
-| On main thread from raw batches                                                   | Simple worker                                                                                                                                        | Up to 28 KB × 20/s transferred and folded on UI thread; stale-run batches must be rolled back                   | Rejected   |
-| **In the worker (TS accumulator), main thread receives O(instruments) snapshots** | Main thread only renders; transfer ≤ 50 small records per batch; accumulator is a pure TS module → easy Vitest tests; stale snapshots simply dropped | Accumulated state lives in worker (main has a copy via snapshots)                                               | **Chosen** |
+### Phase 9 — Hardening and performance
 
-Split: **accumulation** (`applyBatch` → raw sums) in worker; **derivation** (`deriveMetrics` → spread, VWAP, imbalance, nulls) is a pure function used by the main thread. Both in `metrics.ts`, both unit-tested.
+- [x] **9.1** Max-load check (20 000 updates/s) · _R19_
+- [x] **9.2** Memory over 5 minutes at max load · _R18_
+- [x] **9.3** Error path check · _R20_
+- [x] **9.4** Background tab: no catch-up burst · _R6_
+- [x] **9.5** Requirement traceability (R1–R24) · _all_
+- [ ] **9.6** Extension rehearsal (left for the interview)
 
-### 1.5 Worker lifecycle across runs
-
-| Option                                                                                                                  | Pros                                                                                         | Cons                                                                                                     | Verdict    |
-| ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---------- |
-| New worker per Apply                                                                                                    | Strongest isolation                                                                          | Re-fetch/compile Wasm each Apply; more lifecycle code paths; still needs `runId` because tests demand it | Rejected   |
-| **One long-lived worker per app, one Wasm generator instance per run** (`producer_destroy` old → `producer_create` new) | Navigation can never create producers; cleanup per run is explicit and testable; cheap Apply | Must guard with `runId` (required anyway)                                                                | **Chosen** |
-
-Worker is recreated only by the explicit "Retry" action after a fatal init error. Worker is terminated when the root injector is destroyed.
-
-### 1.6 Scheduling
-
-| Option                                                                                                        | Verdict                                                                        |
-| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `setInterval`                                                                                                 | Rejected — overlapping ticks / bursts after throttling.                        |
-| Main-thread timer sending "generate" commands                                                                 | Rejected — couples generation to UI-thread jank.                               |
-| **Worker-side self-rescheduling `setTimeout` via injected `Scheduler`**, delay = `max(0, interval − elapsed)` | **Chosen** — no overlap, no catch-up bursts, testable with a manual scheduler. |
-
-### 1.7 State management & change detection
-
-| Option                                                                                                                  | Verdict                                                                                                                                                                                                                                         |
-| ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| NgRx Store                                                                                                              | Rejected — heavy for one feature; more to explain than to gain.                                                                                                                                                                                 |
-| RxJS `BehaviorSubject` service                                                                                          | Viable, but more boilerplate in zoneless templates.                                                                                                                                                                                             |
-| **`@Service()` singleton `ProducerStore` with Angular signals (private `signal`, public `.asReadonly()` / `computed`)** | **Chosen** — idiomatic Angular 22 (`@Service` is the v22 recommended singleton decorator, tree-shakable, no `providers` entry), zoneless-friendly, worker messages update signals → OnPush (v22 default) views re-render only bound text nodes. |
-
-UI refresh rate: worker posts ≤ 1 snapshot per batch ⇒ ≤ 20 Hz worst case. Main thread stores only the _latest_ snapshot (no queue). Optional coalescing via `requestAnimationFrame` documented as a lever but not needed at 20 Hz × 50 rows.
-
-### 1.8 Forms
-
-| Option                                                                                                        | Verdict                                                                                                                                                                               |
-| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Template-driven                                                                                               | Rejected — validation harder to unit-test.                                                                                                                                            |
-| Typed Reactive Forms (`NonNullableFormBuilder`)                                                               | Rejected — the `angular-developer` skill says new forms on v22+ should use Signal Forms; Reactive Forms is only for existing forms.                                                   |
-| **Signal Forms (`@angular/forms/signals`: `form()`, `[formField]`, `required/min/max/validate`, `submit()`)** | **Chosen** — stable in v22, model is a plain `signal<ProducerSettings>` (fits the signals store), validation lives in one schema function, state is signals → trivial zoneless tests. |
-
-Signal Forms rules that apply here (from `.claude/skills/angular-developer/references/signal-forms.md`):
-
-- The form model is a **local draft** `signal({...store.settings()})`. It is a copy, so editing never touches the store (R9). The model must not contain `null`; numbers start at their current value.
-- Put validation in the schema: `required`, `min`, `max` from `SETTINGS_LIMITS` with messages, and `validate()` returning `{kind:'integer', message}` for non-integers or `NaN` (an empty number input). A validator returns `undefined` when the value is valid, never `null`.
-- **Forbidden on `[formField]` inputs:** `min`/`max` attributes, `[value]`, `[disabled]`. The schema handles them. `step="1"` and `inputmode="numeric"` are allowed.
-- Apply goes through `submit(form, async () => store.apply(model()))`. `submit` marks all fields touched and runs the callback only when the form is valid. The Apply button uses `[disabled]="settingsForm().invalid()"`.
-- Read field state by calling the field: `settingsForm.instrumentCount().errors()`. `settingsForm.instrumentCount.errors()` is wrong.
-
-### 1.9 Hosting / CD
-
-| Option                              | Pros                                                                                                                    | Cons                                                                                        | Verdict     |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ----------- |
-| **GitHub Pages via GitHub Actions** | Same platform as repo; no third-party account linking; Rust + Node on same runner; serves `.wasm` as `application/wasm` | Sub-path (`/<repo>/`) needs `--base-href`; no SPA fallback ⇒ copy `index.html` → `404.html` | **Chosen**  |
-| Cloudflare Pages                    | SPA fallback, previews                                                                                                  | Its build image needs Rust installed manually; external account                             | Alternative |
-| Vercel                              | Previews                                                                                                                | Same Rust issue; external account                                                           | Alternative |
+**Follow-ups found during Phase 9:** [adaptive-repaint](../adaptive-repaint/tasks.md) (feature),
+[paused-rate](../bugfixes/paused-rate/bugfix.md) (bug fix).
 
 ---
 
-## 2. Target structure
-
-```
-.
-├── rust-toolchain.toml                 # pins Rust channel + wasm32 target (deterministic CI)
-├── wasm/producer/
-│   ├── Cargo.toml                      # cdylib, opt-level="s", lto, panic="abort", strip
-│   └── src/
-│       ├── lib.rs                      # extern "C" ABI only
-│       ├── rng.rs                      # SplitMix64 seeding + xoshiro128** / PCG32
-│       ├── model.rs                    # InstrumentState, price walk, book, trade
-│       └── producer.rs                 # Producer { rng, instruments, buffer }
-├── scripts/
-│   ├── build-wasm.mjs                  # cargo build → public/wasm/producer.wasm → verify
-│   ├── verify-wasm.mjs                 # asserts export names, abi_version, size budget
-│   └── smoke-deploy.mjs                # curls live URL + wasm content-type
-├── wasm-tests/
-│   ├── vitest.config.mts               # environment: node
-│   └── producer.wasm.test.ts           # runs the compiled module through wasm-generator.ts
-├── public/wasm/                        # build output (git-ignored)
-├── tsconfig.worker.json
-├── src/app/
-│   ├── app.ts / app.html / app.routes.ts / app.config.ts
-│   ├── core/producer/
-│   │   ├── engine/                     # FRAMEWORK-FREE (lint-enforced, Q0.4): runs in the worker / Node tests
-│   │   │   ├── protocol.model.ts       # message types (main ⇄ worker) — models keep `.model.ts`
-│   │   │   ├── producer-settings.model.ts  # interface ProducerSettings
-│   │   │   ├── producer-settings.ts    # DEFAULT_SETTINGS, SETTINGS_LIMITS, validateSettings()
-│   │   │   ├── symbols.ts              # 50 deterministic tickers
-│   │   │   ├── metrics.ts              # accumulator + applyBatch + deriveMetrics
-│   │   │   ├── scheduler.ts            # Scheduler/Clock interfaces + real impls
-│   │   │   ├── wasm-generator.ts       # WebAssembly adapter
-│   │   │   ├── producer-engine.ts      # worker-side state machine
-│   │   │   └── producer.worker.ts      # thin adapter: self.onmessage → engine
-│   │   ├── producer-tokens.ts          # WORKER_FACTORY, SEED_SOURCE, WASM_URL InjectionTokens
-│   │   └── producer-store.ts           # @Service() ProducerStore — signals, runId gate
-│   ├── shared/format/
-│   │   ├── market-format.ts            # pure fns: formatCents, formatImbalance, formatVolume ("—" for null)
-│   │   └── market-format-pipes.ts      # pure pipes delegating to the fns (cents | imbalance | volume)
-│   └── features/
-│       ├── dashboard/  dashboard.ts (class Dashboard), components/metrics-table.ts, components/producer-status.ts
-│       └── settings/   settings.ts (class Settings, Signal Form), settings-schema.ts (validation schema)
-├── .github/workflows/ci-deploy.yml
-└── README.md
-```
-
----
-
-## 3. Key contracts (write these first; everything else depends on them)
-
-### 3.1 Wasm ABI (`wasm/producer/src/lib.rs`)
-
-```rust
-// Rust 2024 edition: exported symbols need `#[unsafe(no_mangle)]` (verified with toolchain 1.99.0).
-pub const ABI_VERSION: u32 = 1;
-pub const RECORD_WORDS: u32 = 7;          // u32 words per update record
-pub const MAX_INSTRUMENTS: u32 = 50;
-pub const MAX_BATCH: u32 = 1000;
-
-#[unsafe(no_mangle)] pub extern "C" fn abi_version() -> u32;
-#[unsafe(no_mangle)] pub extern "C" fn record_words() -> u32;
-/// Returns 0 (null) when instrument_count ∉ [1, MAX_INSTRUMENTS].
-#[unsafe(no_mangle)] pub extern "C" fn producer_create(instrument_count: u32, seed_lo: u32, seed_hi: u32) -> *mut Producer;
-/// Writes exactly `n` records into the producer-owned buffer; returns pointer to first record.
-/// Returns 0 when producer is null or n ∉ [1, MAX_BATCH].
-#[unsafe(no_mangle)] pub extern "C" fn producer_generate(p: *mut Producer, n: u32) -> *const u32;
-#[unsafe(no_mangle)] pub extern "C" fn producer_destroy(p: *mut Producer);
-```
-
-`memory` is exported by default.
-
-### 3.2 Generator model (all in Rust)
-
-Per instrument state: `mid_cents: i64`, `spread_cents: u32`, `bid_qty: u32`, `ask_qty: u32`.
-
-Per update:
-
-1. `i = rng.below(instrument_count)` — instrument may repeat within a batch.
-2. **Mid walk**: `delta = round(mid × u × 5 / 10_000)` with `u ∈ [−1, 1]`, at least ±1 cent with prob ½ (keeps low prices moving). `mid = max(MIN_MID=100, mid + delta)` (reflecting floor ⇒ price > 0 always).
-3. **Spread**: random walk in `[1, max(1, mid/500)]` cents ⇒ `bid = mid − spread/2`, `ask = bid + spread`, then `bid = max(1, bid)`, `ask = max(ask, bid + 1)` ⇒ `0 < bid < ask`.
-4. **Book**: `bid_qty`, `ask_qty` random walk with step ±50, clamped to `[0, 1000]` ⇒ ≥ 0, sum may be 0 (exercises zero-denominator path).
-5. **Trade side**: buy-at-ask with probability `0.5 + 0.25 × imbalance` (imbalance from the book), otherwise sell-at-bid ⇒ `price ∈ {bid, ask}`.
-6. **Trade qty**: `1 + rng.below(100)` ⇒ ≥ 1.
-7. Initial mids: `rng` in `[1_000, 50_000]` cents per instrument at `producer_create`.
-
-RNG: SplitMix64 to expand the 64-bit seed, PCG32 for draws. No external crates (avoids `getrandom` Wasm issues; smaller binary; fully explainable).
-
-### 3.3 TypeScript generator adapter (`wasm-generator.ts`)
-
-```ts
-export interface MarketGenerator {
-  /** Returns a view of n×7 u32 words. Valid only until the next generate/dispose call. */
-  generate(n: number): Uint32Array;
-  dispose(): void; // idempotent
-}
-export interface GeneratorFactory {
-  create(instrumentCount: number, seed: readonly [number, number]): MarketGenerator;
-}
-export async function loadWasmGeneratorFactory(
-  source: URL | ArrayBuffer,
-): Promise<GeneratorFactory>;
-// - verifies abi_version() === 1 and record_words() === 7, else throws WasmAbiError
-// - instantiateStreaming when URL + correct MIME, falls back to arrayBuffer() + instantiate
-```
-
-### 3.4 Worker protocol (`protocol.model.ts`)
-
-```ts
-export interface ProducerSettings {
-  instrumentCount: number;
-  updatesPerBatch: number;
-  batchIntervalMs: number;
-}
-
-export type ToWorker =
-  | { type: 'init'; wasmUrl: string }
-  | { type: 'start'; runId: number; settings: ProducerSettings; seed: [number, number] }
-  | { type: 'pause'; runId: number }
-  | { type: 'resume'; runId: number }
-  | { type: 'dispose' };
-
-export interface InstrumentAccumulatorDto {
-  symbol: string;
-  lastPriceCents: number | null;
-  bidCents: number | null;
-  askCents: number | null;
-  bidQty: number | null;
-  askQty: number | null;
-  volume: number; // Σ qty
-  notionalCents: number; // Σ price×qty
-  trades: number;
-}
-
-export type FromWorker =
-  | { type: 'ready' }
-  | {
-      type: 'snapshot';
-      runId: number;
-      seq: number;
-      instruments: InstrumentAccumulatorDto[];
-      stats: { batches: number; updates: number; lastBatchMs: number };
-    }
-  | { type: 'status'; runId: number; status: 'running' | 'paused' }
-  | { type: 'error'; runId: number | null; phase: 'init' | 'runtime'; message: string };
-```
-
-### 3.5 Metrics (`metrics.ts`)
-
-```ts
-export function createAccumulators(instrumentCount: number): InstrumentAccumulatorDto[]; // nulls, zeros
-export function applyBatch(acc: InstrumentAccumulatorDto[], words: Uint32Array, n: number): void; // O(n), no allocation
-export interface InstrumentMetrics {
-  symbol: string;
-  lastPriceCents: number | null;
-  spreadCents: number | null; // ask − bid
-  volume: number;
-  vwapCents: number | null; // notional / volume, unrounded
-  imbalance: number | null; // (bq − aq)/(bq + aq)
-}
-export function deriveMetrics(a: InstrumentAccumulatorDto): InstrumentMetrics;
-```
-
-### 3.6 Main-thread store (`producer-store.ts`)
-
-```ts
-@Service() // v22 singleton decorator, replaces @Injectable({providedIn:'root'})
-export class ProducerStore {
-  // each public signal = private writable signal exposed via .asReadonly() or computed()
-  readonly status: Signal<'initializing' | 'running' | 'paused' | 'error'>;
-  readonly settings: Signal<ProducerSettings>;
-  readonly runId: Signal<number>;
-  readonly rows: Signal<InstrumentMetrics[]>; // computed from latest snapshot
-  readonly stats: Signal<{ updatesPerSec: number; batches: number; updates: number }>;
-  readonly error: Signal<string | null>;
-  pause(): void;
-  resume(): void;
-  apply(settings: ProducerSettings): void; // validates, ++runId, resets rows, sends start
-  retry(): void; // only from 'error': recreate worker
-}
-```
-
-Dependencies injected: `WORKER_FACTORY` (`() => Worker`), `SEED_SOURCE` (`() => [number, number]`), `WASM_URL` (string). Tests replace all three.
-
----
-
-## 4. Phased implementation
+## 2. Task details and control checks
 
 Conventions for every step:
 
 - **Commit per step** (conventional commits, e.g. `feat(wasm): pcg32 rng`), so the history tells the story.
 - A step is **done only when all its control checks pass**; checks are commands with an exact expected result (exit code, test name, grep result). No "looks fine".
 - **Phase gate** = all step checks + the phase gate command listed at the end of the phase.
-- **Angular code is written using the `angular-developer` skill** (`.claude/skills/angular-developer/`, see §4.0). Before any Angular step, load the skill and read the reference files that step names. Each Angular step also has an implicit check: `npx ng build` exits 0 afterwards. The skill requires this after every code generation.
-- **Quality gates** (static analysis, complexity, duplication, coverage 65/85, testing pyramid, AAA, E2E, visual) are specified in `docs/QUALITY_GATES_PLAN.md`. Combined execution order:
-  `Phase 0 → Q0 → Q1 → Phase 1 → Phase 2 (+Q2.1–Q2.3) → Phases 3–6 (+Q2.4 integration tests) → Phase 7 → Q3 → Phase 8 (+Q4) → Phase 9 → Q5 (stretch)`.
-  Where the two plans overlap, the quality plan wins. It replaces step 0.3 (TS flags) with Q0.1, step 0.6 (format) with Q0.11, and the step 8.2 CI layout with Q4.2. The §4.0 grep guards become ESLint rules (Q0.4) and stay as a backup check in CI.
-- Global gate command (defined in Phase 0, grows over time):
-  ```bash
-  npm run verify   # = lint:types && test:wasm && test && build
-  ```
+- **Angular code is written using the `angular-developer` skill** (`.claude/skills/angular-developer/`, see "Angular coding standard" below). Before any Angular step, load the skill and read the reference files that step names. Each Angular step also has an implicit check: `npx ng build` exits 0 afterwards. The skill requires this after every code generation.
+- **Quality gates** are specified in [quality-gates](../quality-gates/requirements.md); the combined execution order is in §1. Where the two specs overlap, quality-gates wins: it replaces step 0.3 (TS flags) with Q0.1, step 0.6 (format) with Q0.11, and the step 8.2 CI layout with Q4.2. The grep guards in "Angular coding standard" are ESLint rules (Q0.4).
+- Global gate command: `npm run verify` (it grew phase by phase; its current contents are in quality-gates Q0.11).
 
----
-
-### 4.0 Angular coding standard: `angular-developer` skill
+### Angular coding standard: `angular-developer` skill
 
 Source: https://angular.dev/ai/agent-skills, installed with
 `npx skills add https://github.com/angular/skills --skill angular-developer --agent claude-code --copy -y`.
@@ -374,7 +130,7 @@ Rules taken from the skill. They apply to every Angular step and override the pl
 | Components    | Signal `input()`/`input.required()` and `output()`. Use built-in control flow (`@if/@for/@switch`, with `track` required on `@for`). Self-closing tags (`<router-outlet />`). Inline template for small components. No expensive work in templates: use `computed()` or a pure pipe. | `components.md`, `inputs.md`, `outputs.md`                           |
 | Services / DI | `@Service()` for singletons. `inject()` instead of constructor parameters. `InjectionToken` with a `factory` as the default, replaced in tests with `{provide, useValue}`.                                                                                                           | `creating-services.md`, `defining-providers.md`                      |
 | Reactivity    | `signal` / `computed` / `linkedSignal`. Avoid `effect` for state propagation; use it only for side effects.                                                                                                                                                                          | `signals-overview.md`, `effects.md`, `linked-signal.md`              |
-| Forms         | **Signal Forms** for the settings form (see §1.8).                                                                                                                                                                                                                                   | `signal-forms.md`                                                    |
+| Forms         | **Signal Forms** for the settings form (see design §1.8).                                                                                                                                                                                                                            | `signal-forms.md`                                                    |
 | Formatting    | Pure pipes in templates, delegating to plain exported functions. Never inject pipes into classes.                                                                                                                                                                                    | `pipes.md`                                                           |
 | Routing       | `loadComponent` lazy routes; `RouterLink` and `routerLinkActive`.                                                                                                                                                                                                                    | `define-routes.md`, `loading-strategies.md`, `navigate-to-routes.md` |
 | Styling       | Component styles stay encapsulated and inside the 4 kB budget. Native CSS only, no animation DSL.                                                                                                                                                                                    | `component-styling.md`, `angular-animations.md`                      |
@@ -400,7 +156,7 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 | Step | Work                                                                                                                                                                                       | Control check (deterministic)                                                                                       |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | 0.1  | ✅ Done: on `main`, `.nvmrc` committed, public repo `vvitkus-dev/findev` created and pushed.                                                                                               | `git branch --show-current` → `main`; `git ls-remote origin main` = local `HEAD`                                    |
-| 0.1b | ✅ Done: `angular-developer` skill installed (see §4.0) and `skills-lock.json` committed.                                                                                                  | `test -f .claude/skills/angular-developer/SKILL.md && jq -e '.skills["angular-developer"]' skills-lock.json` exit 0 |
+| 0.1b | ✅ Done: `angular-developer` skill installed (see "Angular coding standard" below) and `skills-lock.json` committed.                                                                       | `test -f .claude/skills/angular-developer/SKILL.md && jq -e '.skills["angular-developer"]' skills-lock.json` exit 0 |
 | 0.2  | Install rustup locally; add `rust-toolchain.toml` (`channel = "1.xx.0"` pinned stable, `targets = ["wasm32-unknown-unknown"]`, `profile = "minimal"`).                                     | `rustc --version` prints the pinned version; `rustup target list --installed` contains `wasm32-unknown-unknown`     |
 | 0.3  | `tsconfig.json`: add `"strict": true`, `"noUncheckedIndexedAccess": true`; angular: `strictTemplates: true`.                                                                               | `npx tsc -p tsconfig.app.json --noEmit` exit 0                                                                      |
 | 0.4  | Remove placeholder `app.html` content; minimal shell `<router-outlet />`; update `app.spec.ts` (Act → `whenStable` → Assert).                                                              | `npx ng test --watch=false` exit 0                                                                                  |
@@ -426,7 +182,7 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 1.1  | `cargo new --lib wasm/producer`; `crate-type = ["cdylib", "rlib"]` (rlib lets `cargo test` run natively); release profile `opt-level="s"`, `lto=true`, `codegen-units=1`, `panic="abort"`, `strip=true`.                                                                           | `cargo build --manifest-path wasm/producer/Cargo.toml --release --target wasm32-unknown-unknown` exit 0                                                                                                                                                                                                                                                      |
 | 1.2  | `rng.rs`: SplitMix64 + PCG32, `next_u32`, `below(n)` (Lemire unbiased), `unit_f64`.                                                                                                                                                                                                | `cargo test rng::` — tests: (a) same seed ⇒ identical first 1 000 outputs, (b) different seeds differ, (c) `below(7)` over 70 000 draws: every bucket within ±10 % of 10 000 (fixed seed ⇒ deterministic)                                                                                                                                                    |
-| 1.3  | `model.rs`: `InstrumentState::new(rng)`, `step(&mut self, rng) -> Update` implementing §3.2.                                                                                                                                                                                       | `cargo test model::` — 100 000 steps from fixed seed: `price>0`, `0<bid<ask`, `qty≥1`, `bidQty,askQty ≤ 1000`, `price==bid‖price==ask`; continuity: `                                                                                                                                                                                                        | mid_t − mid_{t−1} | ≤ max(1, mid×5/10000)+1` |
+| 1.3  | `model.rs`: `InstrumentState::new(rng)`, `step(&mut self, rng) -> Update` implementing design §3.2.                                                                                                                                                                                | `cargo test model::` — 100 000 steps from fixed seed: `price>0`, `0<bid<ask`, `qty≥1`, `bidQty,askQty ≤ 1000`, `price==bid‖price==ask`; continuity: `                                                                                                                                                                                                        | mid_t − mid_{t−1} | ≤ max(1, mid×5/10000)+1` |
 | 1.4  | `producer.rs`: `Producer { rng, instruments: Vec<InstrumentState>, buf: Vec<u32> }`, `generate(n)` writes `n×7` words, reuses buffer (`clear` + `reserve`).                                                                                                                        | `cargo test producer::` — (a) `generate(n).len() == n*7` for n ∈ {1, 2, 100, 1000}; (b) all instrument indices `< count`; (c) with count=3 over 3 000 updates every instrument appears; (d) determinism: two producers same seed ⇒ identical batches; (e) **state retention**: batch₂'s first update for instrument k is continuous with batch₁'s last for k |
 | 1.5  | `lib.rs`: ABI functions; null/invalid handling (`count ∉ [1,50]` ⇒ 0; `n ∉ [1,1000]` ⇒ 0; null producer ⇒ 0; `destroy(null)` no-op).                                                                                                                                               | `cargo test abi::` — invalid inputs return null; create/destroy 10 000× without panic                                                                                                                                                                                                                                                                        |
 | 1.6  | `scripts/build-wasm.mjs`: runs cargo, copies to `public/wasm/producer.wasm`. `scripts/verify-wasm.mjs`: `WebAssembly.Module.exports` equals exactly `{memory, abi_version, record_words, producer_create, producer_generate, producer_destroy}`; `abi_version()==1`; size ≤ 64 KB. | `npm run wasm:build && npm run wasm:verify` exit 0, prints `OK exports=6 size=<N>B`                                                                                                                                                                                                                                                                          |
@@ -518,14 +274,14 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 
 **Goal:** pure, framework-free modules for settings, symbols, metrics, formatting, Wasm adapter.
 
-| Step | Work                                                                                                                                                                                                                              | Control check                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2.1  | `producer-settings.ts`: `DEFAULT_SETTINGS = {5,100,500}`, `SETTINGS_LIMITS`, `validateSettings(x): {ok:true,value}                                                                                                                | {ok:false,errors}`(integers, ranges, finite).`nominalRate(s) = updatesPerBatch*1000/batchIntervalMs`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | `producer-settings.spec.ts`: defaults equal spec; each boundary (0,1,50,51 / 0,1,1000,1001 / 49,50,2000,2001) accepted/rejected correctly; `1.5`, `NaN`, `Infinity`, `'5'` rejected; `nominalRate(default)===200`                                                                           |
-| 2.2  | `symbols.ts`: 50 unique 4-letter uppercase tickers starting `ALFA, BETA`.                                                                                                                                                         | spec: length 50, `new Set(list).size===50`, all match `/^[A-Z]{4}$/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| 2.3  | `metrics.ts`: `createAccumulators`, `applyBatch`, `deriveMetrics` (§3.5).                                                                                                                                                         | `metrics.spec.ts` (all via hand-built `Uint32Array`s): **worked example** — trades (10@10000),(30@10200), bid 10196 ask 10200, bq 600 aq 400 ⇒ last 10200, volume 40, vwap 10150, spread 4, imbalance 0.2 (`toBeCloseTo(0.2, 12)`); **empty** ⇒ all null, volume 0; **zero book** (bq=aq=0) ⇒ imbalance null; **isolation** — updates for instrument 1 don't change instrument 0/2; **book qty never counted in volume**; **each trade once** — same batch applied twice ⇒ volume doubles exactly (no hidden dedupe/double count); **O(instruments)** — accumulator array length unchanged after 10 000 updates; **precision** — notional at 2^53−1 boundary stays exact for integer inputs |
-| 2.4  | `market-format.ts`: `formatCents(c                                                                                                                                                                                                | null)`→`Intl.NumberFormat('en-US',{style:'currency',currency:'USD'})`of`c/100`, null → `—`; `formatImbalance`→`+0.20`/`−0.35`/`0.00`/`—`, clamps display to [−1,1]; `formatVolume`→ grouped integer. Plus`market-format-pipes.ts`: pure pipes `cents`, `imbalance`, `volume`that only delegate to these functions (skill`pipes.md`).                                                                                                                                                                                                                                                                                                                                                        | spec: `formatCents(10150)==='$101.50'`, `formatCents(4)==='$0.04'`, `formatCents(null)==='—'`, `formatImbalance(0.2)==='+0.20'`, `formatImbalance(-1)==='−1.00'`, `formatVolume(0)==='0'`, `formatVolume(1234567)==='1,234,567'`; pipe spec: `new CentsPipe().transform(10150)==='$101.50'` |
-| 2.5  | `wasm-generator.ts` (§3.3). Creates fresh `Uint32Array(memory.buffer, ptr, n*7)` after each call; throws `WasmAbiError` on version mismatch, `RangeError` on null pointer. `dispose` idempotent; `generate` after dispose throws. | `wasm-tests/producer.wasm.test.ts` (Node env, real artefact): batch sizes 1/100/1000 → `length===n*7`; invariants on 50 000 updates; fixed seed ⇒ identical output across two factory instances; invalid count throws; ABI mismatch with a stub module throws `WasmAbiError`; `generate` after `dispose` throws                                                                                                                                                                                                                                                                                                                                                                             |
-| 2.6  | Control check that randomness lives in Wasm.                                                                                                                                                                                      | `grep -rnE "Math\.random                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | crypto\.getRandomValues" src/app/core/producer --include=*.ts                                                                                                                                                                                                                               | grep -v spec`→ only`producer-store.ts` (seed source) |
+| Step | Work                                                                                                                                                                                                                                     | Control check                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2.1  | `producer-settings.ts`: `DEFAULT_SETTINGS = {5,100,500}`, `SETTINGS_LIMITS`, `validateSettings(x): {ok:true,value}                                                                                                                       | {ok:false,errors}`(integers, ranges, finite).`nominalRate(s) = updatesPerBatch*1000/batchIntervalMs`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | `producer-settings.spec.ts`: defaults equal spec; each boundary (0,1,50,51 / 0,1,1000,1001 / 49,50,2000,2001) accepted/rejected correctly; `1.5`, `NaN`, `Infinity`, `'5'` rejected; `nominalRate(default)===200`                                                                           |
+| 2.2  | `symbols.ts`: 50 unique 4-letter uppercase tickers starting `ALFA, BETA`.                                                                                                                                                                | spec: length 50, `new Set(list).size===50`, all match `/^[A-Z]{4}$/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| 2.3  | `metrics.ts`: `createAccumulators`, `applyBatch`, `deriveMetrics` (design §3.5).                                                                                                                                                         | `metrics.spec.ts` (all via hand-built `Uint32Array`s): **worked example** — trades (10@10000),(30@10200), bid 10196 ask 10200, bq 600 aq 400 ⇒ last 10200, volume 40, vwap 10150, spread 4, imbalance 0.2 (`toBeCloseTo(0.2, 12)`); **empty** ⇒ all null, volume 0; **zero book** (bq=aq=0) ⇒ imbalance null; **isolation** — updates for instrument 1 don't change instrument 0/2; **book qty never counted in volume**; **each trade once** — same batch applied twice ⇒ volume doubles exactly (no hidden dedupe/double count); **O(instruments)** — accumulator array length unchanged after 10 000 updates; **precision** — notional at 2^53−1 boundary stays exact for integer inputs |
+| 2.4  | `market-format.ts`: `formatCents(c                                                                                                                                                                                                       | null)`→`Intl.NumberFormat('en-US',{style:'currency',currency:'USD'})`of`c/100`, null → `—`; `formatImbalance`→`+0.20`/`−0.35`/`0.00`/`—`, clamps display to [−1,1]; `formatVolume`→ grouped integer. Plus`market-format-pipes.ts`: pure pipes `cents`, `imbalance`, `volume`that only delegate to these functions (skill`pipes.md`).                                                                                                                                                                                                                                                                                                                                                        | spec: `formatCents(10150)==='$101.50'`, `formatCents(4)==='$0.04'`, `formatCents(null)==='—'`, `formatImbalance(0.2)==='+0.20'`, `formatImbalance(-1)==='−1.00'`, `formatVolume(0)==='0'`, `formatVolume(1234567)==='1,234,567'`; pipe spec: `new CentsPipe().transform(10150)==='$101.50'` |
+| 2.5  | `wasm-generator.ts` (design §3.3). Creates fresh `Uint32Array(memory.buffer, ptr, n*7)` after each call; throws `WasmAbiError` on version mismatch, `RangeError` on null pointer. `dispose` idempotent; `generate` after dispose throws. | `wasm-tests/producer.wasm.test.ts` (Node env, real artefact): batch sizes 1/100/1000 → `length===n*7`; invariants on 50 000 updates; fixed seed ⇒ identical output across two factory instances; invalid count throws; ABI mismatch with a stub module throws `WasmAbiError`; `generate` after `dispose` throws                                                                                                                                                                                                                                                                                                                                                                             |
+| 2.6  | Control check that randomness lives in Wasm.                                                                                                                                                                                             | `grep -rnE "Math\.random                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | crypto\.getRandomValues" src/app/core/producer --include=*.ts                                                                                                                                                                                                                               | grep -v spec`→ only`producer-store.ts` (seed source) |
 
 > **2.1 status (2026-11-18): done.**
 >
@@ -536,7 +292,7 @@ find src/app -name "*.component.ts" -o -name "*.service.ts"                     
 >   - `nominalRate`.
 > - **Tests (27, AAA):** defaults and limits; all 12 boundary values; `1.5`, `NaN`, `Infinity`, `'5'`, `null` and missing values; multi-field errors with range messages; non-object input; `nominalRate(default) === 200`.
 > - **Coverage:** **100 %** statements, branches, functions and lines.
-> - **Dependency fix found along the way:** installing coverage exposed a supply-chain problem, fixed in a separate commit (`build(deps)`, see the supply-chain gate note in QUALITY_GATES_PLAN).
+> - **Dependency fix found along the way:** installing coverage exposed a supply-chain problem, fixed in a separate commit (`build(deps)`, see quality-gates task Q2.0).
 
 > **2.2 status (2026-11-18): done.**
 >
@@ -830,7 +586,7 @@ Behaviour:
 > - **Console:** empty.
 > - **Cosmetic nit:** the init-error text names the URL twice, once from the engine prefix and once from the loader.
 
-**Phase 7 gate:** `npm run verify` exit 0 **and** every grep in §4.0 "Control checks for the standard" returns empty.
+**Phase 7 gate:** `npm run verify` exit 0 **and** every grep in "Angular coding standard" "Control checks for the standard" returns empty.
 
 ---
 
@@ -843,7 +599,7 @@ Behaviour:
 | 8.3  | Enable Pages "Source: GitHub Actions".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | `gh api repos/{owner}/{repo}/pages --jq .build_type` → `workflow`                                    |
 | 8.4  | `scripts/smoke-deploy.mjs <url>`: GET `/` 200 and contains `<app-root`; GET `/wasm/producer.wasm` 200 with `content-type: application/wasm`; GET `/settings` (deep link) 200/404-with-app-shell. Run as last CI step after deploy.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | CI step exit 0                                                                                       |
 | 8.5  | Auto-deploy proof: push a trivial commit (e.g. version string in footer), wait for workflow, smoke script sees new string.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Live page footer shows new short SHA (inject `GITHUB_SHA` at build via `define` or environment file) |
-| 8.6  | README: overview, architecture diagram (Mermaid: Angular ⇄ worker ⇄ Wasm), decisions & trade-offs (summarise §1), prerequisites (Node 24, rustup), commands (`npm ci`, `npm start`, `npm test`, `npm run test:rust`, `npm run test:wasm`, `npm run verify`), live demo + repo links, data model & formulas, known limits (precision note D5, deploy only from `main`).                                                                                                                                                                                                                                                                                                                                                       | README contains all commands; each command run copy-paste on clean clone exits 0                     |
+| 8.6  | README: overview, architecture diagram (Mermaid: Angular ⇄ worker ⇄ Wasm), decisions & trade-offs (summarise design §1), prerequisites (Node 24, rustup), commands (`npm ci`, `npm start`, `npm test`, `npm run test:rust`, `npm run test:wasm`, `npm run verify`), live demo + repo links, data model & formulas, known limits (precision note D5, deploy only from `main`).                                                                                                                                                                                                                                                                                                                                                | README contains all commands; each command run copy-paste on clean clone exits 0                     |
 
 > **8.1–8.6 status (2026-11-18): done, except the 8.5 second-deploy proof, which this commit's push provides.**
 >
@@ -906,52 +662,3 @@ Behaviour:
 4. Commit history shows phased development (≥ 1 commit per step).
 
 ---
-
-## 5. Test inventory (maps to §4 of the task)
-
-| Task requirement                                                             | Suite                                                                                                | Key cases                                                                                                                                            |
-| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Metric calculations, worked example, zero denominators, instrument isolation | `metrics.spec.ts`, `market-format.spec.ts`, `metrics-table.spec.ts`                                  | worked example exact numbers; empty ⇒ unavailable + volume 0; bq+aq = 0 ⇒ imbalance unavailable; instrument isolation; book qty excluded from volume |
-| Settings validation & reset on apply                                         | `producer-settings.spec.ts`, `settings-schema.spec.ts`, `settings.spec.ts`, `producer-store.spec.ts` | boundaries, non-integers, required; editing doesn't apply; apply resets rows/stats and increments runId; apply from paused starts running            |
-| Pause/resume & stale-run rejection                                           | `producer-engine.spec.ts`, `producer-store.spec.ts`                                                  | no generation while paused; no catch-up; totals preserved; stale snapshot / stale command ignored                                                    |
-| Generator behaviour                                                          | Rust `cargo test` + `wasm-tests/producer.wasm.test.ts`                                               | exact batch sizes; invariants on 100k updates; determinism by seed; state continuity across calls; invalid input handling                            |
-
-All time-dependent tests use `ManualScheduler`/fake `Clock`; all randomness uses fixed seeds. No test sleeps.
-
----
-
-## 6. Risk register
-
-| Risk                                                                       | Likelihood        | Impact                                 | Mitigation                                                                                     |
-| -------------------------------------------------------------------------- | ----------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Wasm 404 on GitHub Pages sub-path                                          | High if unhandled | App dead                               | URL from `document.baseURI` (D4); smoke test checks `/wasm/producer.wasm`                      |
-| Detached `ArrayBuffer` after memory growth                                 | Medium            | Wrong/empty reads                      | Re-create view after every `generate`; Wasm test with growing batch sizes 1→1000               |
-| Stale run data leak                                                        | Medium            | Spec violation                         | `runId` gate on both sides; dedicated tests (3.4, 4.3, 6.5)                                    |
-| Angular 22 / Vitest 5 API drift (worker config, unit-test builder options) | Medium            | Build/test friction                    | Verify each config change with gate commands immediately; keep worker logic outside Angular    |
-| Rust not installed for reviewers locally                                   | Medium            | Can't build                            | README prerequisites; `prestart` prints clear message if `cargo` missing; CI builds everything |
-| Timer throttling in background tabs                                        | Low               | Lower throughput while hidden          | Accepted; start-to-start scheduling prevents bursts (9.4)                                      |
-| Float precision of notional (D5)                                           | Very low          | Sub-cent error after ~12 h at max load | Documented; boundary test                                                                      |
-
----
-
-## 7. Suggested commit sequence (abridged)
-
-```
-chore: pin node, rust toolchain, strict TS, scripts
-feat(wasm): pcg32 rng with seeded determinism
-feat(wasm): instrument price/book model with invariants
-feat(wasm): producer batch buffer and C ABI
-build(wasm): build + verify scripts, wasm in public/
-feat(core): settings defaults and validation
-feat(core): metric accumulator and derivation
-feat(core): market formatters + pipes
-feat(core): wasm generator adapter + node wasm tests
-feat(worker): producer engine with injectable scheduler
-feat(worker): pause/resume, run isolation, cleanup
-feat(app): producer service with run gating
-feat(dashboard): metrics table + status
-feat(settings): validated form with apply/reset
-feat(app): routing, shell, error banner
-ci: build, test, deploy to GitHub Pages
-docs: README with architecture and decisions
-```

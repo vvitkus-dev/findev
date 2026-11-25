@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Claude Code PostToolUse hook (docs/QUALITY_GATES_PLAN.md Q1.4).
+// Claude Code PostToolUse hook (specs/quality-gates/tasks.md Q1.4).
 // Formats + lints the single file the agent just edited. On lint errors exits 2 with the
 // errors on stderr, which Claude Code feeds back to the agent so it fixes them immediately.
 import { spawnSync } from 'node:child_process';

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Proves non-ESLint quality tools actually fail on bad input (docs/QUALITY_GATES_PLAN.md).
+// Proves non-ESLint quality tools actually fail on bad input (specs/quality-gates).
 // Each probe: create throwaway files → run the tool → assert exit code (and output) → clean up.
 import { spawnSync } from 'node:child_process';
 import {

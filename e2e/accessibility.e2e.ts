@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { producerState } from './support/dashboard';
 
-// Spec 6 (docs/QUALITY_GATES_PLAN.md Q3.3): axe on each page, WCAG 2 A/AA rules, with zero
+// Scenario E6 (specs/quality-gates/tasks.md Q3.3): axe on each page, WCAG 2 A/AA rules, with zero
 // serious or critical violations. Each page is scanned in a settled, representative state.
 
 /** Serious and critical violations as `rule: selectors` lines, so a failure names the culprit. */

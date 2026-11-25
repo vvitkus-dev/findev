@@ -3,7 +3,7 @@
 //! The JavaScript side talks to this crate through a raw C ABI (no `wasm-bindgen`):
 //! the producer writes fixed-size records of little-endian `u32` words into its own
 //! linear memory and JavaScript reads them through a `Uint32Array` view.
-//! See `docs/IMPLEMENTATION_PLAN.md` §3.1 for the full ABI contract.
+//! See `specs/market-dashboard/design.md` §3.1 for the full ABI contract.
 
 mod abi;
 pub mod model;

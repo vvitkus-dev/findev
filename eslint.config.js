@@ -1,5 +1,5 @@
 // @ts-check
-// Quality gates: docs/QUALITY_GATES_PLAN.md (Q0.2–Q0.6). Zero warnings allowed (`ng lint --max-warnings 0`).
+// Quality gates: specs/quality-gates/tasks.md (Q0.2–Q0.6). Zero warnings allowed (`ng lint --max-warnings 0`).
 const eslint = require('@eslint/js');
 const { defineConfig } = require('eslint/config');
 const tseslint = require('typescript-eslint');

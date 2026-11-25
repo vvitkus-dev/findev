@@ -1,4 +1,4 @@
-// Pre-commit gate (docs/QUALITY_GATES_PLAN.md Q1.1): format + lint only the staged files.
+// Pre-commit gate (specs/quality-gates/tasks.md Q1.1): format + lint only the staged files.
 export default {
   '*.{ts,html}': ['prettier --write', 'eslint --fix --max-warnings 0'],
   '*.{scss,css,json,jsonc,md,mjs,js,yml,yaml}': ['prettier --write'],

@@ -19,7 +19,7 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
-# ---- Static analysis policy (docs/QUALITY_GATES_PLAN.md Q0.9) ------------------
+# ---- Static analysis policy (specs/quality-gates/tasks.md Q0.9) ------------------
 # CI and hooks run clippy with `-D warnings`, so every `warn` below is a hard failure.
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

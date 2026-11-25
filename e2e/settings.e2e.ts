@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { metricRows, producerBar, producerState } from './support/dashboard';
 
-// Scenario E3 (docs/QUALITY_GATES_PLAN.md §5.1): invalid input blocks Apply; Apply starts a new run.
+// Scenario E3 (specs/quality-gates/design.md §3.1): invalid input blocks Apply; Apply starts a new run.
 
 const INVALID = [
   { value: '0', message: 'Must be between 1 and 50' },

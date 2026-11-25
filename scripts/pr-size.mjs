@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PR-size gate (docs/QUALITY_GATES_PLAN.md Q4.3): a big AI-generated PR is hard to review, so
+// PR-size gate (specs/quality-gates/tasks.md Q4.3): a big AI-generated PR is hard to review, so
 // fail when it changes more than MAX lines. Generated or vendored files don't count.
 // Usage: node scripts/pr-size.mjs <base-ref> [--max 600]   (compares <base-ref>...HEAD)
 import { spawnSync } from 'node:child_process';

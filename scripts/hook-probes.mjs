@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Proves the git hooks actually block bad commits/pushes (docs/QUALITY_GATES_PLAN.md Q1).
+// Proves the git hooks actually block bad commits/pushes (specs/quality-gates/tasks.md Q1).
 // Runs in a throwaway detached git worktree so the real working tree and branches are never touched.
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';

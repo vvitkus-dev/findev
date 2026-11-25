@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Proves every quality lint rule actually fires (docs/QUALITY_GATES_PLAN.md Q0 gate).
+// Proves every quality lint rule actually fires (specs/quality-gates/tasks.md Q0 gate).
 // Writes deliberately bad probe files, lints them, asserts the expected rule ids, deletes them.
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';

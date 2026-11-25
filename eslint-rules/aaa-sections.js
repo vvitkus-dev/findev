@@ -1,5 +1,5 @@
 // @ts-check
-// Local rule `local/aaa-sections` (docs/QUALITY_GATES_PLAN.md Q0.6).
+// Local rule `local/aaa-sections` (specs/quality-gates/tasks.md Q0.6).
 // Every it()/test() body must be structured with section comments:
 //   // Arrange   (optional, at most once, before Act)
 //   // Act       (exactly once; Angular's `await fixture.whenStable()` belongs here)

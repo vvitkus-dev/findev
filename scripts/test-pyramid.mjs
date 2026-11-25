@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Testing-pyramid gate (docs/QUALITY_GATES_PLAN.md Q4.1): counts tests per layer and fails
+// Testing-pyramid gate (specs/quality-gates/tasks.md Q4.1): counts tests per layer and fails
 // when the suite drifts into an "ice-cream cone" (too many slow E2E tests, too few unit tests).
 //
 //   unit        = Angular *.spec.ts (not *.integration.spec.ts) + Rust #[test]s
